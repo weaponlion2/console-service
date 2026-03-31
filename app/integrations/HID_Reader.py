@@ -11,7 +11,20 @@ BLOCK_TO_READ = 1
 USB_SLEEP_MILLIS = 0.2  # seconds
 CARD_TIMEOUT = 20  # seconds max wait for card
 
-class HID_Reader:
+class HID_Reader:    
+    
+    def open(self):
+        r = readers()
+
+        if not r:
+            return False
+
+        target = "OMNIKEY"
+        self.reader = next((x for x in r if target in str(x)), None)
+        
+        if self.reader: return True
+        return False
+
     # --- APDU helpers ---
     
     @staticmethod
@@ -20,7 +33,17 @@ class HID_Reader:
         if len(key_str) != 12:
             raise ValueError("Key must be 12 hex characters (6 bytes)")
         return [int(key_str[i:i+2], 16) for i in range(0, 12, 2)]
-    
+
+    @staticmethod
+    def __normalize_key(key):
+        if isinstance(key, str):
+            return HID_Reader.__generate_key(key)
+        if isinstance(key, (list, tuple)):
+            if len(key) != 6 or not all(isinstance(b, int) and 0 <= b <= 0xFF for b in key):
+                raise ValueError("Key must be 6 bytes")
+            return list(key)
+        raise ValueError("Key must be a 6-byte list/tuple or 12-hex-character string")
+
     @staticmethod 
     def byte_array_to_hex(byte_array):
         return ''.join(f'{b:02X}' for b in byte_array)
@@ -62,6 +85,7 @@ class HID_Reader:
     @staticmethod
     def __read_mifare_block(card, block, key_a=DEFAULT_KEY_A):
         try:
+            key_a = HID_Reader.__normalize_key(key_a)
             # --- Load Key ---
             resp, sw1, sw2 = card.transmit(HID_Reader.__load_key_apdu(key_a))
             if (sw1, sw2) != (0x90, 0x00):
@@ -107,63 +131,87 @@ class HID_Reader:
                 "readerstatus": "PROCESS_ERROR"
             }
 
-    def read_card(self, isReadMem):
+    @staticmethod
+    def __update_block_apdu(block, data):
+        if len(data) != 16:
+            raise ValueError("Block data must be exactly 16 bytes")
+        return [0xFF, 0xD6, 0x00, block, 0x10, *data]
+
+    def change_sector_key(self, payload):
         try:
-            
+            if "current_key" not in payload or "new_key" not in payload:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "current_key and new_key are required",
+                    "readerstatus": "BAD_REQUEST"
+                }
+
+            sector = int(payload.get("sector", 0))
+            if sector < 0:
+                raise ValueError("Sector must be non-negative")
+
+            trailer_block = sector * 4 + 3
+
+            current_key = HID_Reader.__normalize_key(payload["current_key"])
+            new_key = HID_Reader.__normalize_key(payload["new_key"])
+
             connection = self.reader.createConnection()
             connection.connect()
 
-            # --- Get UID ---
-            uid = self.__get_uid(connection)
-            if not uid:
+            # authenticate using old key A for trailer
+            auth_resp = self.__read_mifare_block(connection, trailer_block, current_key)
+            if not auth_resp["status"]:
                 return {
                     "status": False,
                     "data": None,
-                    "message": "Failed to get UID",
-                    "readerstatus": "UID_FAILED"
-                    }           
-
-            # --- UID Only Mode ---
-            if not isReadMem:
-                return {
-                    "status": True,
-                    "data": uid,
-                    "message": "Card UID read successfully",
-                    "readerstatus": "CARD_VALID"
+                    "message": f"Could not authenticate trailer block {trailer_block}: {auth_resp['message']}",
+                    "readerstatus": auth_resp["readerstatus"]
                 }
 
-            # --- Read Block (UPDATED HANDLING) ---
-            read_resp = self.__read_mifare_block(connection, BLOCK_TO_READ)
+            trailer_bytes = auth_resp["data"]
+            access_bytes = trailer_bytes[6:10]
 
-            if not read_resp["status"]:
+            if "keyB" in payload and payload["keyB"] is not None:
+                keyB = HID_Reader.__normalize_key(payload["keyB"])
+            else:
+                keyB = trailer_bytes[10:16]
+
+            new_trailer = new_key + access_bytes + keyB
+
+            resp, sw1, sw2 = connection.transmit(HID_Reader.__update_block_apdu(trailer_block, new_trailer))
+            if not (sw1 == 0x90 and sw2 == 0x00):
                 return {
                     "status": False,
                     "data": None,
-                    "message": read_resp["message"],
-                    "readerstatus": read_resp["readerstatus"]
+                    "message": f"Failed to write new key to trailer block {trailer_block}",
+                    "readerstatus": "KEY_CHANGE_FAILED"
                 }
-
-            block_data = self.__bytes_to_string(read_resp["data"])
 
             return {
                 "status": True,
-                "data": block_data,
-                "message": "Card read successfully",
-                "readerstatus": "CARD_VALID"
+                "data": None,
+                "message": "Sector key changed successfully",
+                "readerstatus": "KEY_CHANGED"
             }
-
-        except NoCardException as e:
+        except NoCardException:
             return {
                 "status": False,
                 "data": None,
                 "message": "No card detected",
                 "readerstatus": "NO_CARD"
             }
+        except Exception as e:
+            return {
+                "status": False,
+                "data": None,
+                "message": str(e),
+                "readerstatus": "PROCESS_ERROR"
+            }
 
-
-    def read_cardV2(self, payload):
+    def read_memory(self, payload):
         try:
-            block_key = HID_Reader.__generate_key(payload.get("key", DEFAULT_KEY_A))
+            block_key = HID_Reader.__normalize_key(payload.get("key", DEFAULT_KEY_A))
             block_start_no = payload.get("block", BLOCK_TO_READ)
             length = payload.get("length", 32)
             block_end_no = block_start_no + (length // 16) - 1
@@ -183,7 +231,7 @@ class HID_Reader:
                         "readerstatus": read_resp["readerstatus"]
                     }
                 block_data.extend(read_resp["data"])
-                print(f"Read block {block}: {read_resp['data']}")
+                # print(f"Read block {block}: {block_data}")
 
             block_data = HID_Reader.byte_array_to_hex(block_data)[0:length]
 
@@ -202,31 +250,26 @@ class HID_Reader:
                 "readerstatus": "NO_CARD"
             }
 
+    def read_uid(self):
+        try:
+            connection = self.reader.createConnection()
+            connection.connect()
 
-    def open(self):
-        r = readers()
+            uid = self.__get_uid(connection)
 
-        if not r:
-            return False
+            return {
+                "status": True if uid else False,
+                "data": uid if uid else None,
+                "message": "Card UID read successfully" if uid else "Failed to get UID",
+                "readerstatus": "CARD_VALID" if uid else "UID_FAILED"
+            }
 
-        target = "OMNIKEY"
-        self.reader = next((x for x in r if target in str(x)), None)
-        
-        if self.reader: return True
-        return False
+        except NoCardException as e:
+            return {
+                "status": False,
+                "data": None,
+                "message": "No card detected",
+                "readerstatus": "NO_CARD"
+            }
 
             
-
-# --- API endpoint ---
-# @app.get("/read-card", response_model=CardResponse)
-# async def read_card():
-#     uid, block_data = await wait_for_card()
-#     return CardResponse(uid=uid, block_data=block_data)
-
-# @app.get("/reader-health")
-# async def reader_health():
-#     r = readers()
-#     if len(r) == 0:
-#         raise HTTPException(status_code=500, detail="No smart card readers found")
-#     return {"status": "Reader is connected"}
-   

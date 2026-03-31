@@ -20,189 +20,202 @@ class ReaderClient:
         }.get(readerType, False)
 
     
-    def __changeReaderBasedOnRequest(self, payload: ReaderRequest):
-        readerType = payload["reader"]
-        
-        if(self.__isReaderValid(readerType) == False) : return {
-            "status": False,
-            "readerValue": None,
-            "message": "Invalid reader type",
-            "readerstatus": "READER_INVALID"
-        }
-                
-        if(readerType == ReaderList["CELRDR"]):
-            if self.er302Reader is None:                
-                Reader = ER302_Reader(ER303_DEFAULT_PORT, ER303_DEFAULT_BAUD)
-                self.hidReader = None
-                if Reader.open():
-                    if Reader.init_reader():
-                        self.er302Reader = Reader
-                        return {
-                            "status": True,
-                            "readerValue": Reader,
-                            "message": "ER302 Reader connected",
-                            "readerstatus": "READER_CONNECTED"
-                        }
-                    else: return {
-                    "status": False,
-                    "readerValue": None,
-                    "message": "ER302 Reader not connected",
-                    "readerstatus": "NOT_CONNECTED"
-                }
-                return {
-                    "status": False,
-                    "readerValue": None,
-                    "message": "ER302 Reader not connected",
-                    "readerstatus": "NO_READER"
-                }
-            else: return {
-            "status": True,
-            "readerValue": self.er302Reader,
-            "message": "ER302 Reader connected",
-            "readerstatus": "READER_CONNECTED"
-        }
-                
-        if(readerType == ReaderList["HIDOK"]):
-            if self.hidReader is None:
-                Reader = HID_Reader() 
-                self.er302Reader = None
-                if Reader.open():
-                    self.hidReader = Reader
-                    return {
-                                "status": True,
-                                "readerValue": Reader,
-                                "message": "Hid Reader connected",
-                                "readerstatus": "READER_CONNECTED"
-                            }
-                else: return {
-                        "status": False,
-                        "readerValue": None,
-                        "message": "Hid Reader not connected",
-                        "readerstatus": "NOT_CONNECTED"
-                    }
-            else: return {
-            "status": True,
-            "readerValue": self.hidReader,
-            "message": "Hid Reader connected",
-            "readerstatus": "READER_CONNECTED"
-            }
-        
-        return None
-        
-        
+    def __create_er302_reader(self):
+        reader = ER302_Reader(ER303_DEFAULT_PORT, ER303_DEFAULT_BAUD)
+        if not reader.open():
+            return self.__fail("ER302 Reader not connected", "NO_READER")
 
-    def execute(self, payload: ReaderRequest):
-        # Replace with actual hardware SDK
+        if not reader.init_reader():
+            return self.__fail("ER302 Reader init failed", "NOT_CONNECTED")
+
+        self.er302Reader = reader
+        self.hidReader = None
+        return self.__success(reader, "ER302 Reader connected")
+
+
+    def __create_hid_reader(self):
+        reader = HID_Reader()
+        if not reader.open():
+            return self.__fail("HID Reader not connected", "NOT_CONNECTED")
+
+        self.hidReader = reader
+        self.er302Reader = None
+        return self.__success(reader, "Hid Reader connected")
+
+
+    def __success(self, reader, message):
         return {
-            "status": "success",
-            "readerstatus": "CARD_VALID",
-            "message": "Mock response",
-            # "output": payload.get("input", "LS01"),
-            "output": "LS01"
+            "status": True,
+            "reader": reader,
+            "message": message,
+            "readerstatus": "READER_CONNECTED"
         }
 
-    def findPatron(self, payload: ReaderRequest):
-        try:
-            readerResponse = self.__changeReaderBasedOnRequest(payload)
-            if readerResponse["status"] is False:
-                return {
-                    "status": "fail",
-                    "readerstatus": readerResponse["readerstatus"],
-                    "message": readerResponse["message"],
-                    "output": None
-                }
-            currentReaderInstance = readerResponse["readerValue"]
-            if currentReaderInstance is not None:
-                (isUid, isMem, isWrite, isSecure) = self.__typeOfRequestCommand(payload["command"])
-                if isUid is True or isMem is True:                
-                    cardResponse = (currentReaderInstance.read_card(isMem))
-                    if cardResponse["status"] is True:
-                        return {
-                            "status": "success",
-                            "readerstatus": cardResponse["readerstatus"],
-                            "message": cardResponse["message"],
-                            "output": cardResponse["data"]
-                        }
-                    else: return {
-                        "status": "fail",
-                        "readerstatus": cardResponse["readerstatus"],
-                        "message": cardResponse["message"],
-                        "output": None
-                    }
-            else:
-                return {
-                    "status": "fail",
-                    "readerstatus": "NO_READER",
-                    "message": "No reader is attached to PC",
-                    "output": None
-                }
-        except Exception as e:
-            self.er302Reader = None
-            self.hidReader = None
-            return {
-                    "status": "fail",
-                    "readerstatus": "NO_READER",
-                    "message": e,
-                    "output": None
-                }
-    
-    
-    def readCard(self, payload: ReaderRequest):
-        try:
-            readerResponse = self.__changeReaderBasedOnRequest(payload)
-            if readerResponse["status"] is False:
-                return {
-                    "status": "fail",
-                    "readerstatus": readerResponse["readerstatus"],
-                    "message": readerResponse["message"],
-                    "output": None
-                }
-            currentReaderInstance = readerResponse["readerValue"]
-            if currentReaderInstance is not None:
-                (isUid, isMem, isWrite, isSecure) = self.__typeOfRequestCommand(payload["command"])
-                if isUid is True or isMem is True:
-                    
-                    cardResponse = (currentReaderInstance.read_cardV2(payload))
-                    if cardResponse["status"] is True:
-                        return {
-                            "status": "success",
-                            "readerstatus": cardResponse["readerstatus"],
-                            "message": cardResponse["message"],
-                            "output": cardResponse["data"]
-                        }
-                    else: return {
-                        "status": "fail",
-                        "readerstatus": cardResponse["readerstatus"],
-                        "message": cardResponse["message"],
-                        "output": None
-                    }
-            else:
-                return {
-                    "status": "fail",
-                    "readerstatus": "NO_READER",
-                    "message": "No reader is attached to PC",
-                    "output": None
-                }
-        except Exception as e:
-            print(f"Error in ReaderClient.readCard: {e}")  
-            self.er302Reader = None
-            self.hidReader = None
-            return {
-                    "status": "fail",
-                    "readerstatus": "NO_READER",
-                    "message": e,
-                    "output": None
-                }
-    
-    
-    def __typeOfRequestCommand(self, command):
-        command_map = {
-            "GETUID": (True, False, False, False),
-            "GETMEMID": (False, True, False, False),
-            "SETMEMID": (False, False, True, False ),
-            "SECUREBLK": (False, False, False, True),
-            
+
+    def __fail(self, message, code):
+        return {
+            "status": False,
+            "reader": None,
+            "message": message,
+            "readerstatus": code
         }
-        if command not in command_map:
-            raise (False, False, False, False)
-        return command_map[command]
+
+
+    def __get_reader(self, payload: ReaderRequest):
+        reader_type = payload.get("reader")
+
+        if not self.__isReaderValid(reader_type):
+            return self.__fail("Invalid reader type", "READER_INVALID")
+
+        if reader_type == ReaderList["CELRDR"]:
+            return self.er302Reader and self.__success(self.er302Reader, "ER302 Reader connected") \
+                or self.__create_er302_reader()
+
+        if reader_type == ReaderList["HIDOK"]:
+            return self.hidReader and self.__success(self.hidReader, "Hid Reader connected") \
+                or self.__create_hid_reader()
+
+        return self.__fail("Unsupported reader", "READER_INVALID")
+
+    
+    def readMemory(self, payload: ReaderRequest):
+        reader = self.__current_reader(payload)
+
+        if isinstance(reader, dict):
+            return reader
+
+        try:
+            response = reader.read_memory(payload)
+
+            return {
+                "status": "success" if response["status"] else "fail",
+                "readerstatus": response["readerstatus"],
+                "message": response["message"],
+                "output": response["data"] if response["status"] else None
+            }
+
+        except Exception as e:
+            print(f"Error in readUID: {e}")
+            return {
+                "status": "fail",
+                "readerstatus": "NO_READER",
+                "message": str(e),
+                "output": None
+            }
+
+                
+            
+
+    def writeMemory(self, payload: ReaderRequest):
+        # writeMemory uses read_cardV2 path and accepts payload['write'] ({block:hexstring/list})
+        return self.readMemory(payload)
+
+    def secureBlock(self, payload: ReaderRequest):
+        try:
+            readerResponse = self.__changeReaderBasedOnRequest(payload)
+            if readerResponse["status"] is False:
+                return {
+                    "status": "fail",
+                    "readerstatus": readerResponse["readerstatus"],
+                    "message": readerResponse["message"],
+                    "output": None
+                }
+            currentReaderInstance = readerResponse["readerValue"]
+            if currentReaderInstance is not None:
+                if hasattr(currentReaderInstance, 'change_sector_key'):
+                    cardResponse = currentReaderInstance.change_sector_key(payload)
+                else:
+                    return {
+                        "status": "fail",
+                        "readerstatus": "NO_SECURE_SUPPORT",
+                        "message": "Secure block change not supported by this reader",
+                        "output": None
+                    }
+
+                if cardResponse.get("status") is True:
+                    return {
+                        "status": "success",
+                        "readerstatus": cardResponse.get("readerstatus", "KEY_CHANGED"),
+                        "message": cardResponse.get("message", "Key updated"),
+                        "output": cardResponse.get("data")
+                    }
+                else:
+                    return {
+                        "status": "fail",
+                        "readerstatus": cardResponse.get("readerstatus", "KEY_CHANGE_FAILED"),
+                        "message": cardResponse.get("message", "Key update failed"),
+                        "output": None
+                    }
+            else:
+                return {
+                    "status": "fail",
+                    "readerstatus": "NO_READER",
+                    "message": "No reader is attached to PC",
+                    "output": None
+                }
+        except Exception as e:
+            print(f"Error in ReaderClient.secureBlock: {e}")  
+            self.er302Reader = None
+            self.hidReader = None
+            return {
+                    "status": "fail",
+                    "readerstatus": "NO_READER",
+                    "message": e,
+                    "output": None
+                }
+    
+    
+    def readUID(self, payload: ReaderRequest):
+        reader = self.__current_reader(payload)
+
+        if isinstance(reader, dict):
+            return reader
+
+        try:
+            response = reader.read_uid()
+
+            return {
+                "status": "success" if response["status"] else "fail",
+                "readerstatus": response["readerstatus"],
+                "message": response["message"],
+                "output": response["data"] if response["status"] else None
+            }
+
+        except Exception as e:
+            print(f"Error in readUID: {e}")
+            return {
+                "status": "fail",
+                "readerstatus": "NO_READER",
+                "message": str(e),
+                "output": None
+            }
+
+    
+    def __current_reader(self, payload):
+        try:
+            response = self.__get_reader(payload)
+
+            if not response["status"]:
+                return {
+                    "status": "fail",
+                    "readerstatus": response["readerstatus"],
+                    "message": response["message"],
+                    "output": None
+                }
+
+            return response["reader"]
+
+        except Exception as e:
+            print(f"Error in __current_reader: {e}")
+            self.er302Reader = None
+            self.hidReader = None
+
+            return {
+                "status": "fail",
+                "readerstatus": "NO_READER",
+                "message": str(e),
+                "output": None
+            }
+
+            
+            

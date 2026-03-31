@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.schemas.patron import PatronRequest
+from app.schemas.patron import PatronRequest, MemoryRequest, UIDRequest
 from app.services.patron_service import PatronService
 from app.integrations.reader_client import ReaderClient
 from app.services.system_service import generate_serial_key
@@ -12,6 +12,15 @@ def patron(request: PatronRequest):
     print(request)
     return service.process_patron(request)
 
+@router.get("/memory")
+def memory(request: MemoryRequest):
+    print(request)
+    return service.process_memory(request)
+
+@router.get("/uid")
+def uid(request: UIDRequest):
+    print(request)
+    return service.process_uid(request)
 
 @router.post("/read_card")
 def patron(request: PatronRequest):
