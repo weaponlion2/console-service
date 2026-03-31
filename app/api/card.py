@@ -1,35 +1,32 @@
 from fastapi import APIRouter
-from app.schemas.patron import PatronRequest, MemoryRequest, UIDRequest
-from app.services.patron_service import PatronService
+from app.schemas.card import PatronRequest, MemoryRequest, UIDRequest, SecureBlockRequest, MemoryUpdateRequest
+from app.services.card_service import CardService
 from app.integrations.reader_client import ReaderClient
 from app.services.system_service import generate_serial_key
 
 router = APIRouter()
-service = PatronService(ReaderClient())
+service = CardService(ReaderClient())
 
-@router.post("/Patron")
-def patron(request: PatronRequest):
-    print(request)
-    return service.process_patron(request)
-
-@router.get("/memory")
+@router.post("/memory")
 def memory(request: MemoryRequest):
-    print(request)
-    return service.process_memory(request)
+    return service.read_memory(request)
 
-@router.get("/uid")
+@router.put("/memory")
+def memory(request: MemoryUpdateRequest):
+    return service.write_memory(request)
+
+@router.post("/uid")
 def uid(request: UIDRequest):
-    print(request)
-    return service.process_uid(request)
+    return service.read_uid(request)
 
-@router.post("/read_card")
-def patron(request: PatronRequest):
-    return service.process_read_card(request)
+@router.post("/blockkey")
+def block_key(request: SecureBlockRequest):
+    return service.change_block_key(request)
 
 
-@router.get("/Patron")
-def patron():
-    return "Hello"
+@router.get("/")
+def health():
+    return "Service is running"
 
 @router.post("/login")
 def login():

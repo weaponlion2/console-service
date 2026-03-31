@@ -1,15 +1,23 @@
 from pydantic import BaseModel
+from typing import Dict, Optional, Union
 
 class MemoryRequest(BaseModel):
     reader: str
     port: int = 0
     cardtype: str = "MIFARE"
     key: str = "FFFFFFFFFFFF"
-    startblock: int = 1
-    startindex: int = 0
+    block: int = 0
     length: int = 32
     sessionid: str = ""
     
+class MemoryUpdateRequest(BaseModel):
+    reader: str
+    port: int = 0
+    cardtype: str = "MIFARE"
+    key: str = "FFFFFFFFFFFF"
+    block: int = 0
+    sessionid: str = ""
+    value: str = ""
 
 class UIDRequest(BaseModel):
     reader: str
@@ -21,8 +29,7 @@ class PatronRequest(BaseModel):
     port: int = 0
     cardtype: str = "MIFARE"
     key: str = "FFFFFFFFFFFF"
-    startblock: int = 1
-    startindex: int = 0
+    block: int = 0
     length: int = 32
     sessionid: str = ""
 
@@ -31,3 +38,10 @@ class PatronResponse(BaseModel):
     readerstatus: str
     message: str
     output: str
+
+class SecureBlockRequest(BaseModel):
+    reader: str
+    block: int
+    current_key: str
+    new_key: str
+    keyB: Optional[str] = None

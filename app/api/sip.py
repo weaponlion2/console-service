@@ -1,11 +1,11 @@
 from fastapi import APIRouter
 from app.schemas.sip import SIPItemRequest, SIPPatronRequest, SIPCheckinRequest, SIPCheckoutRequest
 from app.schemas.reader import UIDRequest, MemoryRequest, SecureBlockRequest
-from app.services.patron_service import PatronService
+from app.services.card_service import CardService
 from app.integrations.reader_client import ReaderClient
 
 router = APIRouter()
-service = PatronService(ReaderClient())
+service = CardService(ReaderClient())
 reader = ReaderClient()
 
 @router.post("/Patron")

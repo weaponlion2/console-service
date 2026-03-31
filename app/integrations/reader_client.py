@@ -1,4 +1,4 @@
-from app.schemas.patron import PatronRequest as ReaderRequest
+from app.schemas.card import PatronRequest as ReaderRequest
 from app.integrations.ER302_Reader import ER302_Reader, ER303_TIMEOUT_SEC, ER303_DEFAULT_BAUD, ER303_DEFAULT_PORT
 from app.integrations.HID_Reader import HID_Reader
 
@@ -80,6 +80,7 @@ class ReaderClient:
     
     def readMemory(self, payload: ReaderRequest):
         reader = self.__current_reader(payload)
+        # print(f"Reading memory with reader: {reader}, payload: {payload}")
 
         if isinstance(reader, dict):
             return reader
@@ -88,79 +89,65 @@ class ReaderClient:
             response = reader.read_memory(payload)
 
             return {
-                "status": "success" if response["status"] else "fail",
+                "status": "success" if response["status"] is True else "fail",
                 "readerstatus": response["readerstatus"],
                 "message": response["message"],
-                "output": response["data"] if response["status"] else None
+                "output": response["data"] if response["status"] is True else None
             }
 
         except Exception as e:
             print(f"Error in readUID: {e}")
             return {
                 "status": "fail",
-                "readerstatus": "NO_READER",
+                "readerstatus": "PROCESS_ERROR",
                 "message": str(e),
                 "output": None
             }
 
-                
-            
-
+    
     def writeMemory(self, payload: ReaderRequest):
         # writeMemory uses read_cardV2 path and accepts payload['write'] ({block:hexstring/list})
         return self.readMemory(payload)
 
-    def secureBlock(self, payload: ReaderRequest):
-        try:
-            readerResponse = self.__changeReaderBasedOnRequest(payload)
-            if readerResponse["status"] is False:
-                return {
-                    "status": "fail",
-                    "readerstatus": readerResponse["readerstatus"],
-                    "message": readerResponse["message"],
-                    "output": None
-                }
-            currentReaderInstance = readerResponse["readerValue"]
-            if currentReaderInstance is not None:
-                if hasattr(currentReaderInstance, 'change_sector_key'):
-                    cardResponse = currentReaderInstance.change_sector_key(payload)
-                else:
-                    return {
-                        "status": "fail",
-                        "readerstatus": "NO_SECURE_SUPPORT",
-                        "message": "Secure block change not supported by this reader",
-                        "output": None
-                    }
+    def changeBlockKey(self, payload: ReaderRequest):
+        reader = self.__current_reader(payload)
+        print(f"Changing block key with reader: {reader}, payload: {payload}")
 
-                if cardResponse.get("status") is True:
-                    return {
-                        "status": "success",
-                        "readerstatus": cardResponse.get("readerstatus", "KEY_CHANGED"),
-                        "message": cardResponse.get("message", "Key updated"),
-                        "output": cardResponse.get("data")
-                    }
-                else:
-                    return {
-                        "status": "fail",
-                        "readerstatus": cardResponse.get("readerstatus", "KEY_CHANGE_FAILED"),
-                        "message": cardResponse.get("message", "Key update failed"),
-                        "output": None
-                    }
+        if isinstance(reader, dict):
+            return reader
+
+        try:
+            if hasattr(reader, 'change_block_key'):
+                cardResponse = reader.change_block_key(payload)
             else:
                 return {
                     "status": "fail",
-                    "readerstatus": "NO_READER",
-                    "message": "No reader is attached to PC",
+                    "readerstatus": "NO_SECURE_SUPPORT",
+                    "message": "Secure block change not supported by this reader",
                     "output": None
                 }
+
+            if cardResponse.get("status") is True:
+                return {
+                    "status": "success",
+                    "readerstatus": cardResponse.get("readerstatus", "KEY_CHANGED"),
+                    "message": cardResponse.get("message", "Key updated"),
+                    "output": cardResponse.get("data")
+                }
+            else:
+                return {
+                    "status": "fail",
+                    "readerstatus": cardResponse.get("readerstatus", "KEY_CHANGE_FAILED"),
+                    "message": cardResponse.get("message", "Key update failed"),
+                    "output": None
+                }
+
         except Exception as e:
-            print(f"Error in ReaderClient.secureBlock: {e}")  
-            self.er302Reader = None
-            self.hidReader = None
+            print(f"Error in ReaderClient.secureBlock: {e}")
             return {
                     "status": "fail",
-                    "readerstatus": "NO_READER",
-                    "message": e,
+                    "readerstatus": "PROCESS_ERROR",
+                    "message": str(e),
                     "output": None
                 }
     
@@ -185,7 +172,7 @@ class ReaderClient:
             print(f"Error in readUID: {e}")
             return {
                 "status": "fail",
-                "readerstatus": "NO_READER",
+                "readerstatus": "PROCESS_ERROR",
                 "message": str(e),
                 "output": None
             }

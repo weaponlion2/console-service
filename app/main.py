@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import patron, item, sip
+from app.api import card, item, sip
 
 app = FastAPI(title="RFIDCloud API", version="1.0")
 
@@ -20,6 +20,6 @@ app.add_middleware(
 )
 
 
-app.include_router(patron.router, prefix="", tags=["Patron"])
+app.include_router(card.router, prefix="", tags=["Patron"])
 app.include_router(item.router, prefix="/Item", tags=["Item"])
 app.include_router(sip.router, prefix="/SIP", tags=["SIP"])

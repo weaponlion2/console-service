@@ -7,24 +7,12 @@ import time
 
 # MIFARE default key and block
 DEFAULT_KEY_A = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-BLOCK_TO_READ = 1
+BLOCK_TO_READ = 0
 USB_SLEEP_MILLIS = 0.2  # seconds
 CARD_TIMEOUT = 20  # seconds max wait for card
 
 class HID_Reader:    
     
-    def open(self):
-        r = readers()
-
-        if not r:
-            return False
-
-        target = "OMNIKEY"
-        self.reader = next((x for x in r if target in str(x)), None)
-        
-        if self.reader: return True
-        return False
-
     # --- APDU helpers ---
     
     @staticmethod
@@ -137,7 +125,22 @@ class HID_Reader:
             raise ValueError("Block data must be exactly 16 bytes")
         return [0xFF, 0xD6, 0x00, block, 0x10, *data]
 
-    def change_sector_key(self, payload):
+# ---------------------------------------------------------------------------------------------------------- #
+
+    def open(self):
+        r = readers()
+
+        if not r:
+            return False
+
+        target = "OMNIKEY"
+        self.reader = next((x for x in r if target in str(x)), None)
+        
+        if self.reader: return True
+        return False
+
+
+    def change_block_key(self, payload):
         try:
             if "current_key" not in payload or "new_key" not in payload:
                 return {
@@ -147,11 +150,11 @@ class HID_Reader:
                     "readerstatus": "BAD_REQUEST"
                 }
 
-            sector = int(payload.get("sector", 0))
-            if sector < 0:
-                raise ValueError("Sector must be non-negative")
+            block = int(payload.get("block", 0))
+            if block < 0:
+                raise ValueError("Block must be a non-negative integer")
 
-            trailer_block = sector * 4 + 3
+            trailer_block = block * 4 + 3
 
             current_key = HID_Reader.__normalize_key(payload["current_key"])
             new_key = HID_Reader.__normalize_key(payload["new_key"])
@@ -165,7 +168,7 @@ class HID_Reader:
                 return {
                     "status": False,
                     "data": None,
-                    "message": f"Could not authenticate trailer block {trailer_block}: {auth_resp['message']}",
+                    "message": f"Could not authenticate block with current key",
                     "readerstatus": auth_resp["readerstatus"]
                 }
 
@@ -191,7 +194,7 @@ class HID_Reader:
             return {
                 "status": True,
                 "data": None,
-                "message": "Sector key changed successfully",
+                "message": "Block key changed successfully",
                 "readerstatus": "KEY_CHANGED"
             }
         except NoCardException:
@@ -214,7 +217,8 @@ class HID_Reader:
             block_key = HID_Reader.__normalize_key(payload.get("key", DEFAULT_KEY_A))
             block_start_no = payload.get("block", BLOCK_TO_READ)
             length = payload.get("length", 32)
-            block_end_no = block_start_no + (length // 16) - 1
+            block_end_no = (block_start_no + (length // 16) - 1) if length > 16 else block_start_no
+            # print(f"Reading memory with block key: {block_key}, start block: {block_start_no}, end block: {block_end_no}, length: {length}")
 
             connection = self.reader.createConnection()
             connection.connect()
@@ -230,8 +234,9 @@ class HID_Reader:
                         "message": read_resp["message"],
                         "readerstatus": read_resp["readerstatus"]
                     }
-                block_data.extend(read_resp["data"])
-                # print(f"Read block {block}: {block_data}")
+                block_data.extend(read_resp["data"]) 
+            
+            # print(f"Full block data before trimming: {block_data}")
 
             block_data = HID_Reader.byte_array_to_hex(block_data)[0:length]
 
@@ -272,4 +277,7 @@ class HID_Reader:
                 "readerstatus": "NO_CARD"
             }
 
+    def write_memory(self, payload):
+        
+    
             
