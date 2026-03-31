@@ -17,7 +17,7 @@ class MemoryUpdateRequest(BaseModel):
     key: str = "FFFFFFFFFFFF"
     block: int = 0
     sessionid: str = ""
-    value: str = ""
+    data: str = ""
 
 class UIDRequest(BaseModel):
     reader: str

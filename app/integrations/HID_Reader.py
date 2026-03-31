@@ -73,6 +73,7 @@ class HID_Reader:
     @staticmethod
     def __read_mifare_block(card, block, key_a=DEFAULT_KEY_A):
         try:
+            print(f"Reading block {block} with key {key_a}")
             key_a = HID_Reader.__normalize_key(key_a)
             # --- Load Key ---
             resp, sw1, sw2 = card.transmit(HID_Reader.__load_key_apdu(key_a))
@@ -125,6 +126,56 @@ class HID_Reader:
             raise ValueError("Block data must be exactly 16 bytes")
         return [0xFF, 0xD6, 0x00, block, 0x10, *data]
 
+    @staticmethod
+    def __write_mifare_block(card, block, data, key_a=DEFAULT_KEY_A):
+        try:
+            key_a = HID_Reader.__normalize_key(key_a)
+
+            # --- Load Key ---
+            resp, sw1, sw2 = card.transmit(HID_Reader.__load_key_apdu(key_a))
+            if (sw1, sw2) != (0x90, 0x00):
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "Failed to load key",
+                    "readerstatus": "KEY_LOAD_FAILED"
+                }
+
+            # --- Authenticate ---
+            resp, sw1, sw2 = card.transmit(HID_Reader.__auth_block_apdu(block))
+            if (sw1, sw2) != (0x90, 0x00):
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": f"Failed to authenticate block {block}",
+                    "readerstatus": "AUTH_FAILED"
+                }
+
+            # --- Write Block ---
+            resp, sw1, sw2 = card.transmit(HID_Reader.__update_block_apdu(block, data))
+            if (sw1, sw2) != (0x90, 0x00):
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": f"Failed to write block {block}",
+                    "readerstatus": "WRITE_FAILED"
+                }
+
+            return {
+                "status": True,
+                "data": None,
+                "message": "Block written successfully",
+                "readerstatus": "WRITE_SUCCESS"
+            }
+
+        except Exception as e:
+            return {
+                "status": False,
+                "data": None,
+                "message": str(e),
+                "readerstatus": "PROCESS_ERROR"
+            }
+
 # ---------------------------------------------------------------------------------------------------------- #
 
     def open(self):
@@ -154,7 +205,7 @@ class HID_Reader:
             if block < 0:
                 raise ValueError("Block must be a non-negative integer")
 
-            trailer_block = block * 4 + 3
+            trailer_block = block
 
             current_key = HID_Reader.__normalize_key(payload["current_key"])
             new_key = HID_Reader.__normalize_key(payload["new_key"])
@@ -278,6 +329,110 @@ class HID_Reader:
             }
 
     def write_memory(self, payload):
-        
-    
-            
+        try:
+            block_key = HID_Reader.__normalize_key(payload.get("key", DEFAULT_KEY_A))
+            block_start_no = int(payload.get("block", BLOCK_TO_READ))
+            data_payload = payload.get("data")
+
+            if not data_payload:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "data is required",
+                    "readerstatus": "BAD_REQUEST"
+                }
+
+            connection = self.reader.createConnection()
+            connection.connect()
+
+            to_write = {}
+
+            if isinstance(data_payload, str):
+                data_payload = data_payload.replace(" ", "")
+                if len(data_payload) % 2 != 0:
+                    return {
+                        "status": False,
+                        "data": None,
+                        "message": "Hex string must have even length",
+                        "readerstatus": "BAD_REQUEST"
+                    }
+
+                # decode hex string into bytes
+                try:
+                    raw_bytes = bytes.fromhex(data_payload)
+                except ValueError:
+                    return {
+                        "status": False,
+                        "data": None,
+                        "message": "data must be valid hex string",
+                        "readerstatus": "BAD_REQUEST"
+                    }
+
+                # pad to 16-byte boundary if needed
+                if len(raw_bytes) % 16 != 0:
+                    pad_len = 16 - (len(raw_bytes) % 16)
+                    raw_bytes = raw_bytes + bytes([0] * pad_len)
+
+                for i in range(0, len(raw_bytes), 16):
+                    block = block_start_no + (i // 16)
+                    chunk = raw_bytes[i:i+16]
+                    to_write[block] = list(chunk)
+
+            elif isinstance(data_payload, (list, tuple)):
+                data_bytes = list(data_payload)
+                if len(data_bytes) % 16 != 0:
+                    pad_len = 16 - (len(data_bytes) % 16)
+                    data_bytes = data_bytes + [0] * pad_len
+
+                for i in range(0, len(data_bytes), 16):
+                    block = block_start_no + (i // 16)
+                    to_write[block] = data_bytes[i:i+16]
+
+            else:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "data must be hex string or byte list",
+                    "readerstatus": "BAD_REQUEST"
+                }
+
+            for block, block_data in sorted(to_write.items()):
+                if len(block_data) != 16:
+                    return {
+                        "status": False,
+                        "data": None,
+                        "message": f"Internal error: block {block} length {len(block_data)} must be 16",
+                        "readerstatus": "PROCESS_ERROR"
+                    }
+
+                write_resp = self.__write_mifare_block(connection, block, block_data, block_key)
+                if not write_resp["status"]:
+                    return {
+                        "status": False,
+                        "data": None,
+                        "message": write_resp["message"],
+                        "readerstatus": write_resp["readerstatus"]
+                    }
+
+            return {
+                "status": True,
+                "data": None,
+                "message": "Memory write successful",
+                "readerstatus": "WRITE_SUCCESS"
+            }
+
+        except NoCardException:
+            return {
+                "status": False,
+                "data": None,
+                "message": "No card detected",
+                "readerstatus": "NO_CARD"
+            }
+
+        except Exception as e:
+            return {
+                "status": False,
+                "data": None,
+                "message": str(e),
+                "readerstatus": "PROCESS_ERROR"
+            }

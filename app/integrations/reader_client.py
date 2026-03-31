@@ -1,4 +1,4 @@
-from app.schemas.card import PatronRequest as ReaderRequest
+from app.schemas.card import PatronRequest as ReaderRequest, MemoryUpdateRequest
 from app.integrations.ER302_Reader import ER302_Reader, ER303_TIMEOUT_SEC, ER303_DEFAULT_BAUD, ER303_DEFAULT_PORT
 from app.integrations.HID_Reader import HID_Reader
 
@@ -105,9 +105,30 @@ class ReaderClient:
             }
 
     
-    def writeMemory(self, payload: ReaderRequest):
-        # writeMemory uses read_cardV2 path and accepts payload['write'] ({block:hexstring/list})
-        return self.readMemory(payload)
+    def writeMemory(self, payload: MemoryUpdateRequest):
+        reader = self.__current_reader(payload)
+
+        if isinstance(reader, dict):
+            return reader
+
+        try:
+            response = reader.write_memory(payload)
+
+            return {
+                "status": "success" if response["status"] else "fail",
+                "readerstatus": response["readerstatus"],
+                "message": response["message"],
+                "output": response.get("data") if response["status"] else None
+            }
+
+        except Exception as e:
+            print(f"Error in writeMemory: {e}")
+            return {
+                "status": "fail",
+                "readerstatus": "NO_READER",
+                "message": str(e),
+                "output": None
+            }
 
     def changeBlockKey(self, payload: ReaderRequest):
         reader = self.__current_reader(payload)
