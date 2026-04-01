@@ -73,6 +73,13 @@ class HID_Reader:
     @staticmethod
     def __read_mifare_block(card, block, key_a=DEFAULT_KEY_A):
         try:
+            if HID_Reader.is_trailer_block(block):
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": f"Cannot read trailer block {block}",
+                    "readerstatus": "BAD_REQUEST"
+                }
             print(f"Reading block {block} with key {key_a}")
             key_a = HID_Reader.__normalize_key(key_a)
             # --- Load Key ---
@@ -129,6 +136,13 @@ class HID_Reader:
     @staticmethod
     def __write_mifare_block(card, block, data, key_a=DEFAULT_KEY_A):
         try:
+            if HID_Reader.is_trailer_block(block):
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": f"Cannot write trailer block {block}",
+                    "readerstatus": "BAD_REQUEST"
+                }
             key_a = HID_Reader.__normalize_key(key_a)
 
             # --- Load Key ---
@@ -203,6 +217,35 @@ class HID_Reader:
         # Sectors 32–39 (16 blocks each)
         else:
             return 128 + (sector - 32) * 16 + 15
+
+    @staticmethod
+    def is_trailer_block(block: int) -> bool:
+        if block < 0 or block > 255:
+            raise ValueError("Invalid block number")
+        if block < 128:
+            return block % 4 == 3
+        return (block - 128) % 16 == 15
+
+    @staticmethod
+    def get_available_blocks(start_block: int, data_length: int):
+        if start_block < 0 or start_block > 255:
+            raise ValueError("Invalid block number")
+        if data_length <= 0:
+            return []
+
+        blocks_needed = (data_length + 15) // 16
+        blocks = []
+        block = start_block
+
+        while len(blocks) < blocks_needed and block <= 255:
+            if not HID_Reader.is_trailer_block(block):
+                blocks.append(block)
+            block += 1
+
+        if len(blocks) < blocks_needed:
+            raise ValueError("Not enough blocks available to satisfy length")
+
+        return blocks
 
 # ---------------------------------------------------------------------------------------------------------- #
 
@@ -294,17 +337,41 @@ class HID_Reader:
     def read_memory(self, payload):
         try:
             block_key = HID_Reader.__normalize_key(payload.get("key", DEFAULT_KEY_A))
-            block_start_no = payload.get("block", BLOCK_TO_READ)
-            length = payload.get("length", 32)
-            block_end_no = (block_start_no + (length // 16) - 1) if length > 16 else block_start_no
-            # print(f"Reading memory with block key: {block_key}, start block: {block_start_no}, end block: {block_end_no}, length: {length}")
+            block_start_no = int(payload.get("block", BLOCK_TO_READ))
+            length = int(payload.get("length", 32))
+            if length <= 0:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "length must be positive",
+                    "readerstatus": "BAD_REQUEST"
+                }
+            blocks_needed = (length + 15) // 16
+            block_end_no = block_start_no + blocks_needed - 1
+            if block_start_no < 0 or block_end_no > 255:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "Block range out of bounds",
+                    "readerstatus": "BAD_REQUEST"
+                }
 
             connection = self.reader.createConnection()
             connection.connect()
 
             # --- Read Block (UPDATED HANDLING) ---
             block_data = bytearray()
-            for block in range(block_start_no, block_end_no + 1):
+            try:
+                blocks = HID_Reader.get_available_blocks(block_start_no, length)
+            except ValueError as e:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": str(e),
+                    "readerstatus": "BAD_REQUEST"
+                }
+
+            for block in blocks:
                 read_resp = self.__read_mifare_block(connection, block, block_key)
                 if not read_resp["status"]:
                     return {
@@ -317,7 +384,7 @@ class HID_Reader:
             
             # print(f"Full block data before trimming: {block_data}")
 
-            block_data = HID_Reader.byte_array_to_hex(block_data)[0:length]
+            block_data = HID_Reader.byte_array_to_hex(block_data)[: length * 2]
 
             return {
                 "status": True,
@@ -425,6 +492,22 @@ class HID_Reader:
                 }
 
             for block, block_data in sorted(to_write.items()):
+                if block < 0 or block > 255:
+                    return {
+                        "status": False,
+                        "data": None,
+                        "message": f"Invalid block number: {block}",
+                        "readerstatus": "BAD_REQUEST"
+                    }
+
+                if HID_Reader.is_trailer_block(block):
+                    return {
+                        "status": False,
+                        "data": None,
+                        "message": f"Cannot write trailer block {block}",
+                        "readerstatus": "BAD_REQUEST"
+                    }
+
                 if len(block_data) != 16:
                     return {
                         "status": False,
