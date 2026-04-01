@@ -110,7 +110,7 @@ class ER302_Reader:
 
         hex_str = hex_str.strip()
 
-        print("DEBUG FINAL:", repr(hex_str), len(hex_str))
+        # print("DEBUG FINAL:", repr(hex_str), len(hex_str))
 
         if len(hex_str) % 2 != 0:
             raise ValueError(f"Hex string must have even length: {repr(hex_str)}")
@@ -455,7 +455,7 @@ class ER302_Reader:
         length = payload.get("length", 32)
         blocks = ER302_Reader.get_available_blocks(block_start_no, length)
         
-        print(f"DEBUG: Processing blocks {blocks} with key {block_key} for UID {uid_bytes}")
+        # print(f"DEBUG: Processing blocks {blocks} with key {block_key} for UID {uid_bytes}")
 
         if not self.select_card(uid_bytes):
             return {
@@ -477,7 +477,7 @@ class ER302_Reader:
                 }
 
             data = self.read_block(block)
-            print(f"DEBUG: Read block {block}: {data}")
+            # print(f"DEBUG: Read block {block}: {data}")
             if data is None:
                 return {
                     "status": False,
@@ -564,7 +564,7 @@ class ER302_Reader:
 
         trailer_block = self.get_trailer_block_from_sector(sector)
         
-        print(f"DEBUG: Changing sector {sector} with trailer block {trailer_block}, current_key {current_key}, new_key {new_key}, keyB {keyB}")
+        # print(f"DEBUG: Changing sector {sector} with trailer block {trailer_block}, current_key {current_key}, new_key {new_key}, keyB {keyB}")
 
         if not self.select_card(uid_bytes):
             return {
@@ -741,7 +741,7 @@ class ER302_Reader:
                     "readerstatus": "BAD_REQUEST"
                 }
 
-            print(f"DEBUG: Writing block {block} with data {block_data}")
+            # print(f"DEBUG: Writing block {block} with data {block_data}")
 
             if not self.write_block(block, list(block_data), KEY_A, block_key):
                 return {

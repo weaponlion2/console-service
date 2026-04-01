@@ -80,7 +80,7 @@ class HID_Reader:
                     "message": f"Cannot read trailer block {block}",
                     "readerstatus": "BAD_REQUEST"
                 }
-            print(f"Reading block {block} with key {key_a}")
+            # print(f"Reading block {block} with key {key_a}")
             key_a = HID_Reader.__normalize_key(key_a)
             # --- Load Key ---
             resp, sw1, sw2 = card.transmit(HID_Reader.__load_key_apdu(key_a))

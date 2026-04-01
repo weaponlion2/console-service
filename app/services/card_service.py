@@ -27,7 +27,7 @@ class CardService:
     
     def read_memory(self, request):
         result = self.reader_client.readMemory(request.dict())
-        print(f"Read memory result: {result}")
+        # print(f"Read memory result: {result}")
 
         return {
             "status": result["status"],
