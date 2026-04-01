@@ -325,6 +325,9 @@ class HID_Reader:
         except Exception:
             pass
 
+    def is_reader_connected(self):
+        return self.open()
+
     def change_sector_key(self, payload):
         try:
             if "current_key" not in payload or "new_key" not in payload:

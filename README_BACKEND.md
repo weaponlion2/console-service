@@ -119,11 +119,18 @@ This file explains why each service method exists, what input it takes, and what
 
 - `reader`: `CELRDR`, `HIDOK`
 - `status`: `success`, `fail`
-- `readerstatus`: `READER_CONNECTED`, `NOT_CONNECTED`, `NO_READER`, `KEY_CHANGED`, `KEY_CHANGE_FAILED`, `READ_SUCCESS`, `WRITE_SUCCESS`, `READ_UID_SUCCESS`, `PROCESS_ERROR`
+- `readerstatus`: `READER_CONNECTED`, `NOT_CONNECTED`, `NO_READER`, `KEY_CHANGED`, `KEY_CHANGE_FAILED`, `READ_SUCCESS`, `WRITE_SUCCESS`, `READ_UID_SUCCESS`, `PROCESS_ERROR`, `BAD_REQUEST`
+
+## 10. ReaderClient recovery behavior
+
+- `readMemory`, `writeMemory`, `changeSectorKey`, and `readUID` now:
+  - inspect responses with `readerstatus` of `BAD_REQUEST` or `PROCESS_ERROR`
+  - check actual reader connection via `__is_reader_connected()`
+  - attempt a `__recover_reader()` and retry the operation once if disconnected
 
 ---
 
-## 10. Quick troubleshooting
+## 11. Quick troubleshooting
 
 - 422: schema validation time; ensure request matches model.
 - `NO_READER`: call `/reader` first.

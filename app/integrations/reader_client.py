@@ -12,6 +12,7 @@ class ReaderClient:
     hidReader = None
     er302Reader = None
     reader = None
+    reader_type = None
             
     
     def __isReaderValid(self, readerType):
@@ -33,6 +34,7 @@ class ReaderClient:
 
         self.er302Reader = reader
         self.hidReader = None
+        self.reader_type = ReaderList["CELRDR"]
         return self.__success(reader, "ER302 Reader connected")
 
 
@@ -45,6 +47,7 @@ class ReaderClient:
 
         self.hidReader = reader
         self.er302Reader = None
+        self.reader_type = ReaderList["HIDOK"]
         return self.__success(reader, "Hid Reader connected")
 
 
@@ -56,6 +59,44 @@ class ReaderClient:
             "readerstatus": "READER_CONNECTED"
         }
 
+
+    def __is_reader_connected(self):
+        if self.reader is None:
+            return False
+        print("Checking reader connectivity for type:", self.reader_type)
+
+        # Check hardware-level connectivity for ER302
+        if self.reader_type == ReaderList["CELRDR"] and hasattr(self.reader, "is_reader_connected"):
+            try:
+                return self.reader.is_reader_connected()
+            except Exception:
+                return False
+
+        # For HID, validate if reader object exists; further checks are not available here.
+        if self.reader_type == ReaderList["HIDOK"] and hasattr(self.reader, "is_reader_connected"):
+            try:
+                return self.reader.is_reader_connected()
+            except Exception:
+                return False
+
+        return False
+
+
+    def __check_reader(self, response, op_name):
+        # When error occurs, validate last reader state and optionally recover.
+        print(f"Checking response for {op_name}: {response}")
+        if response.get("readerstatus") in ["BAD_REQUEST", "PROCESS_ERROR"]:
+            if not self.__is_reader_connected():
+                # failed hardware state, report to caller
+                self.__close_reader()
+                
+                return {
+                    "status": "fail",
+                    "readerstatus": "NO_READER",
+                    "message": "No reader connected",
+                    "output": None
+                }
+        return response
 
     def __fail(self, message, code):
         return {
@@ -85,6 +126,7 @@ class ReaderClient:
             self.hidReader = None
 
         self.reader = None
+        self.reader_type = None
 
 
     def __get_reader(self, payload: ReaderRequest):
@@ -153,17 +195,20 @@ class ReaderClient:
                 "status": "success" if response["status"] is True else "fail",
                 "readerstatus": response["readerstatus"],
                 "message": response["message"],
-                "output": response["data"] if response["status"] is True else None
+                "output": response["data"] if response.get("status") is True else None
             }
 
         except Exception as e:
             print(f"Error in readMemory: {e}")
-            return {
+            response = {
                 "status": "fail",
                 "readerstatus": "PROCESS_ERROR",
                 "message": str(e),
                 "output": None
             }
+            
+            return self.__check_reader(response, "readMemory")
+                
 
     
     def writeMemory(self, payload: MemoryUpdateRequest):        
@@ -175,20 +220,22 @@ class ReaderClient:
             response = self.reader.write_memory(payload)
 
             return {
-                "status": "success" if response["status"] else "fail",
-                "readerstatus": response["readerstatus"],
-                "message": response["message"],
-                "output": response.get("data") if response["status"] else None
+                "status": "success" if response.get("status") else "fail",
+                "readerstatus": response.get("readerstatus"),
+                "message": response.get("message"),
+                "output": response.get("data") if response.get("status") else None
             }
 
         except Exception as e:
             print(f"Error in writeMemory: {e}")
-            return {
+            response = {
                 "status": "fail",
                 "readerstatus": "PROCESS_ERROR",
                 "message": str(e),
                 "output": None
             }
+            
+            return self.__check_reader(response, "writeMemory")
 
 
     def changeSectorKey(self, payload: ReaderRequest):
@@ -216,12 +263,14 @@ class ReaderClient:
 
         except Exception as e:
             print(f"Error in ReaderClient.secureBlock: {e}")
-            return {
-                    "status": "fail",
-                    "readerstatus": "PROCESS_ERROR",
-                    "message": str(e),
-                    "output": None
-                }
+            response = {
+                "status": "fail",
+                "readerstatus": "PROCESS_ERROR",
+                "message": str(e),
+                "output": None
+            }
+            
+            return self.__check_reader(response, "readMemory")
     
     
     def readUID(self):
@@ -233,20 +282,22 @@ class ReaderClient:
             response = self.reader.read_uid()
 
             return {
-                "status": "success" if response["status"] else "fail",
-                "readerstatus": response["readerstatus"],
-                "message": response["message"],
-                "output": response["data"] if response["status"] else None
+                "status": "success" if response.get("status") else "fail",
+                "readerstatus": response.get("readerstatus"),
+                "message": response.get("message"),
+                "output": response.get("data") if response.get("status") else None
             }
 
         except Exception as e:
             print(f"Error in readUID: {e}")
-            return {
+            response = {
                 "status": "fail",
                 "readerstatus": "PROCESS_ERROR",
                 "message": str(e),
                 "output": None
             }
+            
+            return self.__check_reader(response, "readMemory")
 
     
             
