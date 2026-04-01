@@ -39,3 +39,6 @@ class SecureSectorRequest(BaseModel):
     current_key: str
     new_key: str
     keyB: Optional[str] = None
+    
+class HexStringRequest(BaseModel):
+    data: str

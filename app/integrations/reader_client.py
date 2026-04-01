@@ -22,6 +22,8 @@ class ReaderClient:
 
     
     def __create_er302_reader(self):
+        self.__close_reader()
+
         reader = ER302_Reader(ER303_DEFAULT_PORT, ER303_DEFAULT_BAUD)
         if not reader.open():
             return self.__fail("ER302 Reader not connected", "NO_READER")
@@ -35,6 +37,8 @@ class ReaderClient:
 
 
     def __create_hid_reader(self):
+        self.__close_reader()
+
         reader = HID_Reader()
         if not reader.open():
             return self.__fail("HID Reader not connected", "NOT_CONNECTED")
@@ -46,7 +50,7 @@ class ReaderClient:
 
     def __success(self, reader, message):
         return {
-            "status": True,
+            "status": "success",
             "reader": reader,
             "message": message,
             "readerstatus": "READER_CONNECTED"
@@ -55,12 +59,32 @@ class ReaderClient:
 
     def __fail(self, message, code):
         return {
-            "status": False,
+            "status": "fail",
             "reader": None,
             "message": message,
             "readerstatus": code,
             "output": None
         }
+
+
+    def __close_reader(self):
+        if self.er302Reader is not None:
+            try:
+                if hasattr(self.er302Reader, "close"):
+                    self.er302Reader.close()
+            except Exception:
+                pass
+            self.er302Reader = None
+
+        if self.hidReader is not None:
+            try:
+                if hasattr(self.hidReader, "close"):
+                    self.hidReader.close()
+            except Exception:
+                pass
+            self.hidReader = None
+
+        self.reader = None
 
 
     def __get_reader(self, payload: ReaderRequest):
@@ -70,12 +94,14 @@ class ReaderClient:
             return self.__fail("Invalid reader type", "READER_INVALID")
 
         if reader_type == ReaderList["CELRDR"]:
-            return self.er302Reader and self.__success(self.er302Reader, "ER302 Reader connected") \
-                or self.__create_er302_reader()
+            if self.er302Reader is not None:
+                return self.__success(self.er302Reader, "ER302 Reader connected")
+            return self.__create_er302_reader()
 
         if reader_type == ReaderList["HIDOK"]:
-            return self.hidReader and self.__success(self.hidReader, "Hid Reader connected") \
-                or self.__create_hid_reader()
+            if self.hidReader is not None:
+                return self.__success(self.hidReader, "Hid Reader connected")
+            return self.__create_hid_reader()
 
         return self.__fail("Unsupported reader", "READER_INVALID")
 
@@ -84,11 +110,11 @@ class ReaderClient:
         try:
             response = self.__get_reader(payload)
 
-            if not response["status"]:
+            if response.get("status") != "success":
                 return {
                     "status": "fail",
-                    "readerstatus": response["readerstatus"],
-                    "message": response["message"],
+                    "readerstatus": response.get("readerstatus"),
+                    "message": response.get("message"),
                     "output": None
                 }
             self.reader = response["reader"]
@@ -131,7 +157,7 @@ class ReaderClient:
             }
 
         except Exception as e:
-            print(f"Error in readUID: {e}")
+            print(f"Error in readMemory: {e}")
             return {
                 "status": "fail",
                 "readerstatus": "PROCESS_ERROR",
@@ -159,7 +185,7 @@ class ReaderClient:
             print(f"Error in writeMemory: {e}")
             return {
                 "status": "fail",
-                "readerstatus": "NO_READER",
+                "readerstatus": "PROCESS_ERROR",
                 "message": str(e),
                 "output": None
             }
@@ -183,8 +209,8 @@ class ReaderClient:
             else:
                 return {
                     "status": "fail",
-                    "readerstatus": cardResponse.get("readerstatus", "KEY_CHANGE_FAILED"),
-                    "message": cardResponse.get("message", "Key update failed"),
+                    "readerstatus": response.get("readerstatus", "KEY_CHANGE_FAILED"),
+                    "message": response.get("message", "Key update failed"),
                     "output": None
                 }
 

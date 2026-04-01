@@ -127,6 +127,58 @@ class HID_Reader:
                 "readerstatus": "PROCESS_ERROR"
             }
 
+
+    @staticmethod
+    def __read_mifare_blockWithoutSectorProtection(card, block, key_a=DEFAULT_KEY_A):
+        try:
+            # print(f"Reading block {block} with key {key_a}")
+            key_a = HID_Reader.__normalize_key(key_a)
+            # --- Load Key ---
+            resp, sw1, sw2 = card.transmit(HID_Reader.__load_key_apdu(key_a))
+            if (sw1, sw2) != (0x90, 0x00):
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "Failed to load key",
+                    "readerstatus": "KEY_LOAD_FAILED"
+                }
+
+            # --- Authenticate ---
+            resp, sw1, sw2 = card.transmit(HID_Reader.__auth_block_apdu(block))
+            if (sw1, sw2) != (0x90, 0x00):
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": f"Failed to authenticate block {block}",
+                    "readerstatus": "AUTH_FAILED"
+                }
+
+            # --- Read Block ---
+            resp, sw1, sw2 = card.transmit(HID_Reader.__read_block_apdu(block))
+            if (sw1, sw2) != (0x90, 0x00):
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": f"Failed to read block {block}",
+                    "readerstatus": "READ_FAILED"
+                }
+
+            return {
+                "status": True,
+                "data": resp,
+                "message": "Block read successfully",
+                "readerstatus": "READ_SUCCESS"
+            }
+
+        except Exception as e:
+            return {
+                "status": False,
+                "data": None,
+                "message": str(e),
+                "readerstatus": "PROCESS_ERROR"
+            }
+
+
     @staticmethod
     def __update_block_apdu(block, data):
         if len(data) != 16:
@@ -261,6 +313,17 @@ class HID_Reader:
         if self.reader: return True
         return False
 
+    def close(self):
+        try:
+            if hasattr(self, 'reader') and self.reader is not None:
+                # smartcard library does not always expose a disconnect method at this level
+                if hasattr(self.reader, 'disconnect'):
+                    try:
+                        self.reader.disconnect()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def change_sector_key(self, payload):
         try:
@@ -283,9 +346,10 @@ class HID_Reader:
 
             connection = self.reader.createConnection()
             connection.connect()
-
+            
             # authenticate using old key A for trailer
-            auth_resp = self.__read_mifare_block(connection, trailer_block, current_key)
+            auth_resp = self.__read_mifare_blockWithoutSectorProtection(connection, trailer_block, current_key)
+            print(f"Auth response: {auth_resp}")
             if not auth_resp["status"]:
                 return {
                     "status": False,

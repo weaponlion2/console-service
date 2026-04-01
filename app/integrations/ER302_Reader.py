@@ -350,6 +350,19 @@ class ER302_Reader:
         _, _, status, _ = self._recv_resp()
         return status == 0x00
 
+
+    def write_blockWithoutSectorProtection(self, block, data, key_type=KEY_A, key=DEFAULT_KEY):
+        if len(data) != 16:
+            raise ValueError("Block must be exactly 16 bytes")
+        
+        if not self.auth_block(block, key_type, key):
+            raise AuthenticationError("Authentication failed for block {}".format(block))
+
+        self._send_cmd(CMD_M1_WRITE, [block] + data)
+        _, _, status, _ = self._recv_resp()
+        return status == 0x00
+
+
     def read_block(self, block):
         """Reads 16 bytes from a specific block."""
         self._send_cmd(CMD_M1_READ, [block])
@@ -606,7 +619,7 @@ class ER302_Reader:
                 "readerstatus": "KEY_CHANGE_FAILED"
             }
 
-        if not self.write_block(trailer_block, list(new_trailer), KEY_A, current_key):
+        if not self.write_blockWithoutSectorProtection(trailer_block, list(new_trailer), KEY_A, current_key):
             return {
                 "status": False,
                 "data": None,

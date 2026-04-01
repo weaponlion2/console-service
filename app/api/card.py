@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.schemas.card import ReaderRequest, MemoryRequest, SecureSectorRequest, MemoryUpdateRequest
+from app.schemas.card import HexStringRequest, ReaderRequest, MemoryRequest, SecureSectorRequest, MemoryUpdateRequest
 from app.services.card_service import CardService
 from app.integrations.reader_client import ReaderClient
 from app.services.system_service import generate_serial_key
@@ -45,7 +45,42 @@ def login():
 
 @router.get("/serialkey")
 def serial_key():
-    return {
-        "serialkey": generate_serial_key(),
-        "status": "success"
+    try:
+        serial_key = generate_serial_key()
+        return {
+            "status": "success",
+            "serial_key": serial_key
+        }
+    except Exception as e:
+        return {
+            "status": "fail",
+            "message": str(e)
+        }
+    
+@router.post("/str-to-hex")
+def str_to_hex(request: HexStringRequest):
+    try:
+        hex_data = request.data.encode('utf-8').hex().upper()
+        return {
+            "value": hex_data,
+            "status": "success"
+        }
+    except Exception as e:
+        return {
+            "status": "fail",
+            "message": str(e)
+        }
+
+@router.post("/hex-to-str")
+def hex_to_str(request: HexStringRequest):
+    try:
+        data = bytes.fromhex(request.data).decode('utf-8')
+        return {
+            "value": data,
+            "status": "success"
+        }
+    except Exception as e:
+        return {
+            "status": "fail",
+            "message": f"Invalid hex string: {e}"
         }
