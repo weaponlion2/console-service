@@ -176,6 +176,34 @@ class HID_Reader:
                 "readerstatus": "PROCESS_ERROR"
             }
 
+    @staticmethod
+    def get_sector_trailer_block(block: int) -> int:
+        if block < 0 or block > 255:
+            raise ValueError("Invalid block number")
+
+        # Sectors 0–31 (4 blocks each)
+        if block < 128:
+            sector = block // 4
+            return sector * 4 + 3
+
+        # Sectors 32–39 (16 blocks each)
+        else:
+            sector = (block - 128) // 16 + 32
+            return 128 + (sector - 32) * 16 + 15
+
+    @staticmethod
+    def get_trailer_block_from_sector(sector: int) -> int:
+        if sector < 0 or sector > 39:
+            raise ValueError("Invalid sector number (0–39)")
+
+        # Sectors 0–31 (4 blocks each)
+        if sector < 32:
+            return sector * 4 + 3
+
+        # Sectors 32–39 (16 blocks each)
+        else:
+            return 128 + (sector - 32) * 16 + 15
+
 # ---------------------------------------------------------------------------------------------------------- #
 
     def open(self):
@@ -191,7 +219,7 @@ class HID_Reader:
         return False
 
 
-    def change_block_key(self, payload):
+    def change_sector_key(self, payload):
         try:
             if "current_key" not in payload or "new_key" not in payload:
                 return {
@@ -201,11 +229,11 @@ class HID_Reader:
                     "readerstatus": "BAD_REQUEST"
                 }
 
-            block = int(payload.get("block", 0))
-            if block < 0:
-                raise ValueError("Block must be a non-negative integer")
+            sector = int(payload.get("sector", 0))
+            if sector < 0:
+                raise ValueError("Sector must be a non-negative integer")
 
-            trailer_block = block
+            trailer_block = HID_Reader.get_trailer_block_from_sector(sector)
 
             current_key = HID_Reader.__normalize_key(payload["current_key"])
             new_key = HID_Reader.__normalize_key(payload["new_key"])

@@ -1,11 +1,16 @@
 from fastapi import APIRouter
-from app.schemas.card import PatronRequest, MemoryRequest, UIDRequest, SecureBlockRequest, MemoryUpdateRequest
+from app.schemas.card import ReaderRequest, MemoryRequest, SecureSectorRequest, MemoryUpdateRequest
 from app.services.card_service import CardService
 from app.integrations.reader_client import ReaderClient
 from app.services.system_service import generate_serial_key
 
 router = APIRouter()
 service = CardService(ReaderClient())
+
+
+@router.post("/reader")
+def memory(request: ReaderRequest):
+    return service.init_reader(request)
 
 @router.post("/memory")
 def memory(request: MemoryRequest):
@@ -15,13 +20,13 @@ def memory(request: MemoryRequest):
 def memory(request: MemoryUpdateRequest):
     return service.write_memory(request)
 
-@router.post("/uid")
-def uid(request: UIDRequest):
-    return service.read_uid(request)
+@router.get("/uid")
+def uid():
+    return service.read_uid()
 
-@router.post("/blockkey")
-def block_key(request: SecureBlockRequest):
-    return service.change_block_key(request)
+@router.post("/sectorkey")
+def sector_key(request: SecureSectorRequest):
+    return service.change_sector_key(request)
 
 
 @router.get("/")

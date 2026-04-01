@@ -1,4 +1,6 @@
-import serial, os, time
+from multiprocessing import AuthenticationError
+
+import serial, os, time, math
 
 # --- Configuration ---
 ER303_DEFAULT_PORT = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0"
@@ -33,12 +35,60 @@ KEY_A = 0x60
 LED_BLUE = 0x01
 LED_OFF = 0x00
 DEFAULT_KEY = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-BLOCK_TO_READ = 1
+BLOCK_TO_READ = 0
 BLOCK_TO_READ_LENGTH = 32
 
 
 class ER302_Reader:
     
+    
+    @staticmethod
+    def get_trailer_block_from_sector(sector: int) -> int:
+        if sector < 0 or sector > 39:
+            raise ValueError("Invalid sector number (0–39)")
+
+        # Sectors 0–31 (4 blocks each)
+        if sector < 32:
+            return sector * 4 + 3
+
+        # Sectors 32–39 (16 blocks each)
+        else:
+            return 128 + (sector - 32) * 16 + 15
+
+
+    @staticmethod
+    def get_sector_trailer_block(block: int) -> int:
+        if block < 0 or block > 255:
+            raise ValueError("Invalid block number")
+
+        # Sectors 0–31 (4 blocks each)
+        if block < 128:
+            sector = block // 4
+            return sector * 4 + 3
+
+        # Sectors 32–39 (16 blocks each)
+        else:
+            sector = (block - 128) // 16 + 32
+            return 128 + (sector - 32) * 16 + 15
+
+        
+    @staticmethod
+    def __generate_key(key_str):
+        key_str = key_str.replace(" ", "")
+        if len(key_str) != 12:
+            raise ValueError("Key must be 12 hex characters (6 bytes)")
+        return [int(key_str[i:i+2], 16) for i in range(0, 12, 2)]
+
+    @staticmethod
+    def __normalize_key(key):
+        if isinstance(key, str):
+            return ER302_Reader.__generate_key(key)
+        if isinstance(key, (list, tuple)):
+            if len(key) != 6 or not all(isinstance(b, int) and 0 <= b <= 0xFF for b in key):
+                raise ValueError("Key must be 6 bytes")
+            return list(key)
+        raise ValueError("Key must be a 6-byte list/tuple or 12-hex-character string")
+
     @staticmethod 
     def byte_array_to_hex(byte_array):
         return ''.join(f'{b:02X}' for b in byte_array)
@@ -59,24 +109,33 @@ class ER302_Reader:
             return bytes.fromhex(hex_str).decode('utf-8').rstrip()
         except Exception as e:
             raise ValueError(f"Decoding failed: {repr(hex_str)}") from e
+    
+    @staticmethod
+    def get_available_blocks(start_block: int, data_length: int) -> list[int]:
+        if start_block < 0 or start_block > 255:
+            raise ValueError("Invalid start block")
 
-    
-    @staticmethod
-    def __generate_key(key_str):
-        key_str = key_str.replace(" ", "")
-        if len(key_str) != 12:
-            raise ValueError("Key must be 12 hex characters (6 bytes)")
-        return [int(key_str[i:i+2], 16) for i in range(0, 12, 2)]
-    
-    @staticmethod
-    def __normalize_key(key):
-        if isinstance(key, str):
-            return ER302_Reader.__generate_key(key)
-        if isinstance(key, (list, tuple)):
-            if len(key) != 6 or not all(isinstance(b, int) and 0 <= b <= 0xFF for b in key):
-                raise ValueError("Key must be 6 bytes")
-            return list(key)
-        raise ValueError("Key must be a 6-byte list/tuple or 12-hex-character string")
+        blocks_needed = math.ceil(data_length / 16)
+        result = []
+
+        block = start_block
+
+        while len(result) < blocks_needed and block <= 255:
+            # Determine if block is trailer
+            if block < 128:
+                is_trailer = (block % 4 == 3)
+            else:
+                is_trailer = ((block - 128) % 16 == 15)
+
+            if not is_trailer:
+                result.append(block)
+
+            block += 1
+
+        if len(result) < blocks_needed:
+            raise ValueError("Not enough space available")
+
+        return result
 
     
     def __init__(self, port, baud):
@@ -263,19 +322,17 @@ class ER302_Reader:
         return status == 0x00
 
     def auth_block(self, block, key_type=KEY_A, key=DEFAULT_KEY):
-        """Authenticates a specific block."""
         params = [key_type, block] + key
         self._send_cmd(CMD_M1_AUTH, params)
         _, _, status, _ = self._recv_resp()
         return status == 0x00
 
     def write_block(self, block, data, key_type=KEY_A, key=DEFAULT_KEY):
-        """Writes 16 bytes to a specific block."""
         if len(data) != 16:
             raise ValueError("Block must be exactly 16 bytes")
 
         if not self.auth_block(block, key_type, key):
-            return False
+            raise AuthenticationError("Authentication failed for block {}".format(block))
 
         self._send_cmd(CMD_M1_WRITE, [block] + data)
         _, _, status, _ = self._recv_resp()
@@ -296,47 +353,10 @@ class ER302_Reader:
         self._send_cmd(CMD_ANTENNA, [RF_OFF])
         self._send_cmd(CMD_LIGHT, [LED_OFF])
 
-    def processResult(self, uid_bytes):
-        try:
-            memData = ""
-            if not self.select_card(uid_bytes):
-                return {
-                    "status": False,
-                    "memData": None,
-                    "message": "Card not selected",
-                    "readerstatus": "CARD_NOT_SELECTED"
-                }
-
-            block = 1
-            if self.auth_block(block):
-                data = self.read_block(block)
-                if data:
-                    memData = ER302_Reader.byte_array_to_hex(data)
-                    memData = ER302_Reader.hex_to_string(memData)
-                    return {
-                        "status": True,
-                        "memData": memData,
-                        "message": "Card block data",
-                        "readerstatus": "CARD_VALID"
-                    }
-                
-                else: return {
-                    "status": False,
-                    "memData": memData,
-                    "message": "Error while reading data of block 1",
-                    "readerstatus": "READ_FAILED"
-                }
-            else: return {
-                    "status": False,
-                    "memData": None,
-                    "message": f"Block {block} authentication failed",
-                    "readerstatus": "AUTH_FAILED"
-                }            
-        finally:            
-            self.halt_and_reset() 
+    def is_reader_connected(self):
+        return os.path.exists(self.port)
     
-    def read_card(self, isReadMem):
-        
+    def read_uid(self):
         if not self.ser or not self.ser.is_open:
             return {
                 "status": False,
@@ -364,24 +384,58 @@ class ER302_Reader:
             if ac_stat == 0x00 and data and len(data) >= 4:
                 uid_bytes = data[:4]
                 uid_str = " ".join(f"{b:02X}" for b in uid_bytes)
+                return {
+                    "status": True,
+                    "data": uid_str.replace(" ", ""),
+                    "message": "Card uid value",
+                    "readerstatus": "CARD_VALID"
+                }
+            time.sleep(0.05)
 
-                if isReadMem:
-                    processResponse = self.processResult(uid_bytes)
-                    return {
+        return {
+            "status": False,
+            "data": None,
+            "message": "Anticollision failed after retries",
+            "readerstatus": "ANTICOLL_FAIL"
+        }
+    
+    
+    def read_memory(self, payload):
+        
+        if not self.ser or not self.ser.is_open:
+            return {
+                "status": False,
+                "data": None,
+                "message": "Reader not ready",
+                "readerstatus": "READER_NOT_READY"
+            }
+            
+        self._send_cmd(CMD_REQUEST, [REQ_ALL])
+        _, _, req_stat, _ = self._recv_resp()
+        
+        
+        if req_stat != 0x00:
+            return {
+                "status": False,
+                "data": None,
+                "message": "No card available on machine",
+                "readerstatus": "NO_CARD"
+            }
+
+        for attempt in range(3):
+            self._send_cmd(CMD_ANTICOLL)
+            _, _, ac_stat, data = self._recv_resp()
+
+            if ac_stat == 0x00 and data and len(data) >= 4:
+                uid_bytes = data[:4]
+                processResponse = self.processBlocks(uid_bytes, payload)
+                return {
                         "status": processResponse["status"],
                         "data": processResponse["memData"],
                         "message": processResponse["message"],
                         "readerstatus": processResponse["readerstatus"]
                     }
-                else:
-                    return {
-                        "status": True,
-                        "data": uid_str,
-                        "message": "Card uid value",
-                        "readerstatus": "CARD_VALID"
-                    }
 
-            # 🔧 Small delay improves success rate significantly
             time.sleep(0.05)
 
         return {
@@ -392,104 +446,14 @@ class ER302_Reader:
         }
 
 
-    def read_cardV2(self, payload):
-        """Read multiple blocks from the card and optionally update block data.
+    def processBlocks(self, uid_bytes, payload):
 
-        payload:
-          key: key for authentication (hex string or 6-byte list)
-          block: starting block (default BLOCK_TO_READ)
-          length: number of bytes to read (default BLOCK_TO_READ_LENGTH)
-          write: optional dict {block:int, data:16-byte list/tuple/hexstring}
-        """
         block_key = ER302_Reader.__normalize_key(payload.get("key", DEFAULT_KEY))
-        block_start_no = int(payload.get("block", BLOCK_TO_READ))
-        length = int(payload.get("length", BLOCK_TO_READ_LENGTH))
-        block_end_no = block_start_no + (length // 16) - 1
-
-        if not self.ser or not self.ser.is_open:
-            return {
-                "status": False,
-                "data": None,
-                "message": "Reader not ready",
-                "readerstatus": "READER_NOT_READY"
-            }
-
-        self._send_cmd(CMD_REQUEST, [REQ_ALL])
-        _, _, req_stat, _ = self._recv_resp()
-
-        if req_stat != 0x00:
-            return {
-                "status": False,
-                "data": None,
-                "message": "No card available on machine",
-                "readerstatus": "NO_CARD"
-            }
-            
-        for attempt in range(3):
-            # Do one anticollision and card select for this sequence
-            self._send_cmd(CMD_ANTICOLL)
-            _, _, ac_stat, data = self._recv_resp()
-            if ac_stat != 0x00 or not data or len(data) < 4:
-                continue
-
-            uid_bytes = data[:4]
-
-            blocks = list(range(block_start_no, block_end_no + 1))
-
-            processResponse = self.processResultV2({
-                "uid_bytes": uid_bytes,
-                "blocks": blocks,
-                "key": block_key,
-                "length": length,
-            })
-
-            if not processResponse["status"]:
-                self.halt_and_reset()
-                return processResponse
-
-            read_hex = processResponse["memData"]
-
-            self.halt_and_reset()
-
-            return {
-                "status": True,
-                "data": read_hex,
-                "message": "Card read successfully",
-                "readerstatus": "CARD_VALID"
-            }
-
-
-        return {
-                    "status": False,
-                    "data": None,
-                    "message": "Anticollision failed",
-                    "readerstatus": "ANTICOLL_FAIL"
-                }
-
-    def processResultV2(self, payload):
-        """Read one or more blocks while the card is selected."""
-        uid_bytes = payload.get("uid_bytes")
-        blocks = payload.get("blocks", payload.get("block"))
-        key = ER302_Reader.__normalize_key(payload.get("key", DEFAULT_KEY))
-        length = payload.get("length", BLOCK_TO_READ_LENGTH)
-
-        if blocks is None:
-            return {
-                "status": False,
-                "memData": None,
-                "message": "blocks is required",
-                "readerstatus": "BAD_REQUEST"
-            }
-
-        if isinstance(blocks, int):
-            blocks = [blocks]
-        elif not isinstance(blocks, (list, tuple)):
-            return {
-                "status": False,
-                "memData": None,
-                "message": "blocks must be int or list of ints",
-                "readerstatus": "BAD_REQUEST"
-            }
+        block_start_no = payload.get("block", BLOCK_TO_READ)
+        length = payload.get("length", 32)
+        blocks = ER302_Reader.get_available_blocks(block_start_no, length)
+        
+        print(f"DEBUG: Processing blocks {blocks} with key {block_key} for UID {uid_bytes}")
 
         if not self.select_card(uid_bytes):
             return {
@@ -502,7 +466,7 @@ class ER302_Reader:
         block_data = bytearray()
 
         for block in blocks:
-            if not self.auth_block(block, KEY_A, key):
+            if not self.auth_block(block, KEY_A, block_key):
                 return {
                     "status": False,
                     "memData": None,
@@ -511,6 +475,7 @@ class ER302_Reader:
                 }
 
             data = self.read_block(block)
+            print(f"DEBUG: Read block {block}: {data}")
             if data is None:
                 return {
                     "status": False,
@@ -530,8 +495,54 @@ class ER302_Reader:
             "readerstatus": "CARD_VALID"
         }
 
+    
     def change_sector_key(self, payload):
-        """Change sector trailer key A (and optional key B)."""
+        
+        if not self.ser or not self.ser.is_open:
+            return {
+                "status": False,
+                "data": None,
+                "message": "Reader not ready",
+                "readerstatus": "READER_NOT_READY"
+            }
+            
+        self._send_cmd(CMD_REQUEST, [REQ_ALL])
+        _, _, req_stat, _ = self._recv_resp()
+        
+        
+        if req_stat != 0x00:
+            return {
+                "status": False,
+                "data": None,
+                "message": "No card available on machine",
+                "readerstatus": "NO_CARD"
+            }
+
+        for attempt in range(3):
+            self._send_cmd(CMD_ANTICOLL)
+            _, _, ac_stat, data = self._recv_resp()
+
+            if ac_stat == 0x00 and data and len(data) >= 4:
+                uid_bytes = data[:4]
+                processResponse = self.change_sector_key_process(uid_bytes, payload)
+                return {
+                        "status": processResponse["status"],
+                        "data": processResponse["data"],
+                        "message": processResponse["message"],
+                        "readerstatus": processResponse["readerstatus"]
+                    }
+
+            time.sleep(0.05)
+
+        return {
+            "status": False,
+            "data": None,
+            "message": "Anticollision failed after retries",
+            "readerstatus": "ANTICOLL_FAIL"
+        }
+
+
+    def change_sector_key_process(self, uid_bytes, payload):
         sector = int(payload.get("sector", 0))
         current_key = payload.get("current_key", "FFFFFFFFFFFF")
         new_key = payload.get("new_key")
@@ -558,7 +569,17 @@ class ER302_Reader:
                 "readerstatus": "BAD_REQUEST"
             }
 
-        trailer_block = sector * 4 + 3
+        trailer_block = self.get_trailer_block_from_sector(sector)
+        
+        print(f"DEBUG: Changing sector {sector} with trailer block {trailer_block}, current_key {current_key}, new_key {new_key}, keyB {keyB}")
+
+        if not self.select_card(uid_bytes):
+            return {
+                "status": False,
+                "memData": None,
+                "message": "Card not selected",
+                "readerstatus": "CARD_NOT_SELECTED"
+            }
 
         # authenticate with old key
         if not self.auth_block(trailer_block, KEY_A, current_key):
@@ -577,7 +598,7 @@ class ER302_Reader:
                 "message": "Failed to read trailer block",
                 "readerstatus": "READ_FAILED"
             }
-
+            
         access_bits = old_trailer[6:10]
 
         if keyB is None:
@@ -607,13 +628,146 @@ class ER302_Reader:
             "readerstatus": "KEY_CHANGED"
         }
 
-    def is_reader_connected(self):
-        return os.path.exists(self.port)
+    
+    def write_memory(self, payload):
+        
+        if not self.ser or not self.ser.is_open:
+            return {
+                "status": False,
+                "data": None,
+                "message": "Reader not ready",
+                "readerstatus": "READER_NOT_READY"
+            }
+            
+        self._send_cmd(CMD_REQUEST, [REQ_ALL])
+        _, _, req_stat, _ = self._recv_resp()
+        
+        
+        if req_stat != 0x00:
+            return {
+                "status": False,
+                "data": None,
+                "message": "No card available on machine",
+                "readerstatus": "NO_CARD"
+            }
+
+        for attempt in range(3):
+            self._send_cmd(CMD_ANTICOLL)
+            _, _, ac_stat, data = self._recv_resp()
+
+            if ac_stat == 0x00 and data and len(data) >= 4:
+                uid_bytes = data[:4]
+                processResponse = self.write_memory_process(uid_bytes, payload)
+                return {
+                        "status": processResponse["status"],
+                        "data": processResponse["data"],
+                        "message": processResponse["message"],
+                        "readerstatus": processResponse["readerstatus"]
+                    }
+
+            time.sleep(0.05)
+
+        return {
+            "status": False,
+            "data": None,
+            "message": "Anticollision failed after retries",
+            "readerstatus": "ANTICOLL_FAIL"
+        }
+    
+    
+    def write_memory_process(self, uid_bytes, payload):
+        block_start_no = int(payload.get("block", 0))
+        block_key = payload.get("key", "FFFFFFFFFFFF")
+        data_payload = payload.get("data")
+
+        try:
+            block_key = ER302_Reader.__normalize_key(block_key)
+        except Exception as e:
+            return {
+                "status": False,
+                "data": None,
+                "message": str(e),
+                "readerstatus": "BAD_REQUEST"
+            }       
+        
+        to_write = {}
+
+        if isinstance(data_payload, str):
+            data_payload = data_payload.replace(" ", "")
+            if len(data_payload) % 2 != 0:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "Hex string must have even length",
+                    "readerstatus": "BAD_REQUEST"
+                }
+
+            # decode hex string into bytes
+            try:
+                raw_bytes = bytes.fromhex(data_payload)
+            except ValueError:
+                return {
+                        "status": False,
+                        "data": None,
+                        "message": "data must be valid hex string",
+                        "readerstatus": "BAD_REQUEST"
+                    }
+
+            # pad to 16-byte boundary if needed
+            if len(raw_bytes) % 16 != 0:
+                pad_len = 16 - (len(raw_bytes) % 16)
+                raw_bytes = raw_bytes + bytes([0] * pad_len)
+
+            for i in range(0, len(raw_bytes), 16):
+                block = block_start_no + (i // 16)
+                chunk = raw_bytes[i:i+16]
+                to_write[block] = list(chunk)
+
+        elif isinstance(data_payload, (list, tuple)):
+            data_bytes = list(data_payload)
+            if len(data_bytes) % 16 != 0:
+                pad_len = 16 - (len(data_bytes) % 16)
+                data_bytes = data_bytes + [0] * pad_len
+
+            for i in range(0, len(data_bytes), 16):
+                block = block_start_no + (i // 16)
+                to_write[block] = data_bytes[i:i+16]
+
+        else:
+            return {
+                "status": False,
+                "data": None,
+                "message": "data must be hex string or byte list",
+                "readerstatus": "BAD_REQUEST"
+            }
+
+        if not self.select_card(uid_bytes):
+            return {
+                "status": False,
+                "memData": None,
+                "message": "Card not selected",
+                "readerstatus": "CARD_NOT_SELECTED"
+            }
+
+        for block, block_data in sorted(to_write.items()):
+            print(f"DEBUG: Writing block {block} with data {block_data}")
+
+            if not self.write_block(block, list(block_data), KEY_A, block_key):
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "Failed to write memory block",
+                    "readerstatus": "FAILED_TO_WRITE_BLOCK"
+                }
 
 
-def print_table(block_num, data):
-    """Prints block data in Hex and ASCII format."""
-    hex_str = " ".join(f"{b:02X}" for b in data)
-    ascii_str = "".join(chr(b) if 32 <= b < 127 else "." for b in data)
-    print(f"Block {block_num:02d} | {hex_str} | {ascii_str}")
+        return {
+            "status": True,
+            "data": None,
+            "message": "Memory write successful",
+            "readerstatus": "WRITE_SUCCESS"
+        }
+
+
+    
 

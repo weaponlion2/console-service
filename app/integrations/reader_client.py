@@ -11,6 +11,7 @@ ReaderList = {
 class ReaderClient:
     hidReader = None
     er302Reader = None
+    reader = None
             
     
     def __isReaderValid(self, readerType):
@@ -57,7 +58,8 @@ class ReaderClient:
             "status": False,
             "reader": None,
             "message": message,
-            "readerstatus": code
+            "readerstatus": code,
+            "output": None
         }
 
 
@@ -77,16 +79,49 @@ class ReaderClient:
 
         return self.__fail("Unsupported reader", "READER_INVALID")
 
+
+    def __current_reader(self, payload):
+        try:
+            response = self.__get_reader(payload)
+
+            if not response["status"]:
+                return {
+                    "status": "fail",
+                    "readerstatus": response["readerstatus"],
+                    "message": response["message"],
+                    "output": None
+                }
+            self.reader = response["reader"]
+            return {
+                    "status": "success",
+                    "readerstatus": response["readerstatus"],
+                    "message": response["message"],
+                    "output": None
+                }
+
+        except Exception as e:
+            print(f"Error in __current_reader: {e}")
+            self.er302Reader = None
+            self.hidReader = None
+            self.reader = None
+
+            return {
+                "status": "fail",
+                "readerstatus": "NO_READER",
+                "message": str(e),
+                "output": None
+            }
+
+    def init_reader(self, payload: ReaderRequest):
+        return self.__current_reader(payload)
     
     def readMemory(self, payload: ReaderRequest):
-        reader = self.__current_reader(payload)
-        # print(f"Reading memory with reader: {reader}, payload: {payload}")
 
-        if isinstance(reader, dict):
-            return reader
+        if self.reader is None:
+            return self.__fail("No reader initialized", "NO_READER")
 
         try:
-            response = reader.read_memory(payload)
+            response = self.reader.read_memory(payload)
 
             return {
                 "status": "success" if response["status"] is True else "fail",
@@ -105,14 +140,13 @@ class ReaderClient:
             }
 
     
-    def writeMemory(self, payload: MemoryUpdateRequest):
-        reader = self.__current_reader(payload)
-
-        if isinstance(reader, dict):
-            return reader
+    def writeMemory(self, payload: MemoryUpdateRequest):        
+        
+        if self.reader is None:
+            return self.__fail("No reader initialized", "NO_READER")
 
         try:
-            response = reader.write_memory(payload)
+            response = self.reader.write_memory(payload)
 
             return {
                 "status": "success" if response["status"] else "fail",
@@ -130,30 +164,21 @@ class ReaderClient:
                 "output": None
             }
 
-    def changeBlockKey(self, payload: ReaderRequest):
-        reader = self.__current_reader(payload)
-        print(f"Changing block key with reader: {reader}, payload: {payload}")
 
-        if isinstance(reader, dict):
-            return reader
+    def changeSectorKey(self, payload: ReaderRequest):
+
+        if self.reader is None:
+            return self.__fail("No reader initialized", "NO_READER")
 
         try:
-            if hasattr(reader, 'change_block_key'):
-                cardResponse = reader.change_block_key(payload)
-            else:
-                return {
-                    "status": "fail",
-                    "readerstatus": "NO_SECURE_SUPPORT",
-                    "message": "Secure block change not supported by this reader",
-                    "output": None
-                }
+            response = self.reader.change_sector_key(payload)
 
-            if cardResponse.get("status") is True:
+            if response.get("status") is True:
                 return {
                     "status": "success",
-                    "readerstatus": cardResponse.get("readerstatus", "KEY_CHANGED"),
-                    "message": cardResponse.get("message", "Key updated"),
-                    "output": cardResponse.get("data")
+                    "readerstatus": response.get("readerstatus", "KEY_CHANGED"),
+                    "message": response.get("message", "Key updated"),
+                    "output": response.get("data")
                 }
             else:
                 return {
@@ -173,14 +198,13 @@ class ReaderClient:
                 }
     
     
-    def readUID(self, payload: ReaderRequest):
-        reader = self.__current_reader(payload)
+    def readUID(self):
 
-        if isinstance(reader, dict):
-            return reader
+        if self.reader is None:
+            return self.__fail("No reader initialized", "NO_READER")
 
         try:
-            response = reader.read_uid()
+            response = self.reader.read_uid()
 
             return {
                 "status": "success" if response["status"] else "fail",
@@ -199,31 +223,4 @@ class ReaderClient:
             }
 
     
-    def __current_reader(self, payload):
-        try:
-            response = self.__get_reader(payload)
-
-            if not response["status"]:
-                return {
-                    "status": "fail",
-                    "readerstatus": response["readerstatus"],
-                    "message": response["message"],
-                    "output": None
-                }
-
-            return response["reader"]
-
-        except Exception as e:
-            print(f"Error in __current_reader: {e}")
-            self.er302Reader = None
-            self.hidReader = None
-
-            return {
-                "status": "fail",
-                "readerstatus": "NO_READER",
-                "message": str(e),
-                "output": None
-            }
-
-            
             
