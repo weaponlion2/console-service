@@ -73,6 +73,14 @@ class ER302_Reader:
             sector = (block - 128) // 16 + 32
             return 128 + (sector - 32) * 16 + 15
 
+    @staticmethod
+    def is_trailer_block(block: int) -> bool:
+        if block < 0 or block > 255:
+            raise ValueError("Invalid block number")
+        if block < 128:
+            return block % 4 == 3
+        return (block - 128) % 16 == 15
+
         
     @staticmethod
     def __generate_key(key_str):
@@ -332,6 +340,8 @@ class ER302_Reader:
     def write_block(self, block, data, key_type=KEY_A, key=DEFAULT_KEY):
         if len(data) != 16:
             raise ValueError("Block must be exactly 16 bytes")
+        if ER302_Reader.is_trailer_block(block):
+            raise ValueError("Cannot write trailer block {} through write_block".format(block))
 
         if not self.auth_block(block, key_type, key):
             raise AuthenticationError("Authentication failed for block {}".format(block))
@@ -357,7 +367,25 @@ class ER302_Reader:
 
     def is_reader_connected(self):
         return os.path.exists(self.port)
-    
+
+    def _find_card_uid(self):
+        """Helper: request card and perform anticollision, returning UID bytes or error code."""
+        self._send_cmd(CMD_REQUEST, [REQ_ALL])
+        _, _, req_stat, _ = self._recv_resp()
+
+        if req_stat != 0x00:
+            return None, "NO_CARD"
+
+        for attempt in range(3):
+            self._send_cmd(CMD_ANTICOLL)
+            _, _, ac_stat, data = self._recv_resp()
+
+            if ac_stat == 0x00 and data and len(data) >= 4:
+                return data[:4], None
+            time.sleep(0.05)
+
+        return None, "ANTICOLL_FAIL"
+
     def read_uid(self):
         if not self.ser or not self.ser.is_open:
             return {
@@ -366,39 +394,29 @@ class ER302_Reader:
                 "message": "Reader not ready",
                 "readerstatus": "READER_NOT_READY"
             }
-            
-        self._send_cmd(CMD_REQUEST, [REQ_ALL])
-        _, _, req_stat, _ = self._recv_resp()
-        
-        
-        if req_stat != 0x00:
+
+        uid, err = self._find_card_uid()
+        if err:
+            if err == "NO_CARD":
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "No card available on machine",
+                    "readerstatus": "NO_CARD"
+                }
             return {
                 "status": False,
                 "data": None,
-                "message": "No card available on machine",
-                "readerstatus": "NO_CARD"
+                "message": "Anticollision failed after retries",
+                "readerstatus": "ANTICOLL_FAIL"
             }
 
-        for attempt in range(3):
-            self._send_cmd(CMD_ANTICOLL)
-            _, _, ac_stat, data = self._recv_resp()
-
-            if ac_stat == 0x00 and data and len(data) >= 4:
-                uid_bytes = data[:4]
-                uid_str = " ".join(f"{b:02X}" for b in uid_bytes)
-                return {
-                    "status": True,
-                    "data": uid_str.replace(" ", ""),
-                    "message": "Card uid value",
-                    "readerstatus": "CARD_VALID"
-                }
-            time.sleep(0.05)
-
+        uid_str = "".join(f"{b:02X}" for b in uid)
         return {
-            "status": False,
-            "data": None,
-            "message": "Anticollision failed after retries",
-            "readerstatus": "ANTICOLL_FAIL"
+            "status": True,
+            "data": uid_str,
+            "message": "Card uid value",
+            "readerstatus": "CARD_VALID"
         }
     
     
@@ -411,40 +429,22 @@ class ER302_Reader:
                 "message": "Reader not ready",
                 "readerstatus": "READER_NOT_READY"
             }
-            
-        self._send_cmd(CMD_REQUEST, [REQ_ALL])
-        _, _, req_stat, _ = self._recv_resp()
-        
-        
-        if req_stat != 0x00:
+
+        uid, err = self._find_card_uid()
+        if err:
             return {
                 "status": False,
                 "data": None,
-                "message": "No card available on machine",
-                "readerstatus": "NO_CARD"
+                "message": "No card available on machine" if err == "NO_CARD" else "Anticollision failed after retries",
+                "readerstatus": err
             }
 
-        for attempt in range(3):
-            self._send_cmd(CMD_ANTICOLL)
-            _, _, ac_stat, data = self._recv_resp()
-
-            if ac_stat == 0x00 and data and len(data) >= 4:
-                uid_bytes = data[:4]
-                processResponse = self.processBlocks(uid_bytes, payload)
-                return {
-                        "status": processResponse["status"],
-                        "data": processResponse["memData"],
-                        "message": processResponse["message"],
-                        "readerstatus": processResponse["readerstatus"]
-                    }
-
-            time.sleep(0.05)
-
+        processResponse = self.processBlocks(uid, payload)
         return {
-            "status": False,
-            "data": None,
-            "message": "Anticollision failed after retries",
-            "readerstatus": "ANTICOLL_FAIL"
+            "status": processResponse["status"],
+            "data": processResponse.get("memData"),
+            "message": processResponse["message"],
+            "readerstatus": processResponse["readerstatus"]
         }
 
 
@@ -516,40 +516,22 @@ class ER302_Reader:
                 "message": "Reader not ready",
                 "readerstatus": "READER_NOT_READY"
             }
-            
-        self._send_cmd(CMD_REQUEST, [REQ_ALL])
-        _, _, req_stat, _ = self._recv_resp()
-        
-        
-        if req_stat != 0x00:
+
+        uid, err = self._find_card_uid()
+        if err:
             return {
                 "status": False,
                 "data": None,
-                "message": "No card available on machine",
-                "readerstatus": "NO_CARD"
+                "message": "No card available on machine" if err == "NO_CARD" else "Anticollision failed after retries",
+                "readerstatus": err
             }
 
-        for attempt in range(3):
-            self._send_cmd(CMD_ANTICOLL)
-            _, _, ac_stat, data = self._recv_resp()
-
-            if ac_stat == 0x00 and data and len(data) >= 4:
-                uid_bytes = data[:4]
-                processResponse = self.change_sector_key_process(uid_bytes, payload)
-                return {
-                        "status": processResponse["status"],
-                        "data": processResponse["data"],
-                        "message": processResponse["message"],
-                        "readerstatus": processResponse["readerstatus"]
-                    }
-
-            time.sleep(0.05)
-
+        processResponse = self.change_sector_key_process(uid, payload)
         return {
-            "status": False,
-            "data": None,
-            "message": "Anticollision failed after retries",
-            "readerstatus": "ANTICOLL_FAIL"
+            "status": processResponse["status"],
+            "data": processResponse.get("data"),
+            "message": processResponse["message"],
+            "readerstatus": processResponse["readerstatus"]
         }
 
 
@@ -649,40 +631,22 @@ class ER302_Reader:
                 "message": "Reader not ready",
                 "readerstatus": "READER_NOT_READY"
             }
-            
-        self._send_cmd(CMD_REQUEST, [REQ_ALL])
-        _, _, req_stat, _ = self._recv_resp()
-        
-        
-        if req_stat != 0x00:
+
+        uid, err = self._find_card_uid()
+        if err:
             return {
                 "status": False,
                 "data": None,
-                "message": "No card available on machine",
-                "readerstatus": "NO_CARD"
+                "message": "No card available on machine" if err == "NO_CARD" else "Anticollision failed after retries",
+                "readerstatus": err
             }
 
-        for attempt in range(3):
-            self._send_cmd(CMD_ANTICOLL)
-            _, _, ac_stat, data = self._recv_resp()
-
-            if ac_stat == 0x00 and data and len(data) >= 4:
-                uid_bytes = data[:4]
-                processResponse = self.write_memory_process(uid_bytes, payload)
-                return {
-                        "status": processResponse["status"],
-                        "data": processResponse["data"],
-                        "message": processResponse["message"],
-                        "readerstatus": processResponse["readerstatus"]
-                    }
-
-            time.sleep(0.05)
-
+        processResponse = self.write_memory_process(uid, payload)
         return {
-            "status": False,
-            "data": None,
-            "message": "Anticollision failed after retries",
-            "readerstatus": "ANTICOLL_FAIL"
+            "status": processResponse["status"],
+            "data": processResponse.get("data"),
+            "message": processResponse["message"],
+            "readerstatus": processResponse["readerstatus"]
         }
     
     
@@ -761,7 +725,6 @@ class ER302_Reader:
             }
 
         for block, block_data in sorted(to_write.items()):
-            # Determine if block is trailer; block cannot be overwritten safely
             if block < 0 or block > 255:
                 return {
                     "status": False,
@@ -770,12 +733,7 @@ class ER302_Reader:
                     "readerstatus": "BAD_REQUEST"
                 }
 
-            if block < 128:
-                is_trailer = (block % 4 == 3)
-            else:
-                is_trailer = ((block - 128) % 16 == 15)
-
-            if is_trailer:
+            if ER302_Reader.is_trailer_block(block):
                 return {
                     "status": False,
                     "data": None,
