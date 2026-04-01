@@ -37,8 +37,8 @@ class CardService:
         }
 
 
-    def read_uid(self, request):
-        result = self.reader_client.readUID(request.dict())
+    def read_uid(self):
+        result = self.reader_client.readUID()
 
         return {
             "status": result["status"],

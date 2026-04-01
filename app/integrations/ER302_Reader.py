@@ -1,6 +1,8 @@
-from multiprocessing import AuthenticationError
-
 import serial, os, time, math
+
+class AuthenticationError(Exception):
+    """Raised when a card block authentication fails."""
+    pass
 
 # --- Configuration ---
 ER303_DEFAULT_PORT = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0"
@@ -285,7 +287,7 @@ class ER302_Reader:
             return dev_id, cmd_code, status, data
 
         except Exception as e:
-            return None, None, None, None
+            return None, None, None, f"Recv response exception: {e}"
 
     def init_reader(self):
         """Initialize the reader hardware."""
@@ -485,8 +487,17 @@ class ER302_Reader:
                 }
 
             block_data.extend(data)
-        
-        block_data = (ER302_Reader.byte_array_to_hex(block_data))[0:length]
+
+        if not isinstance(length, int) or length < 0:
+            return {
+                "status": False,
+                "memData": None,
+                "message": "Invalid length",
+                "readerstatus": "BAD_REQUEST"
+            }
+
+        hex_data = ER302_Reader.byte_array_to_hex(block_data)
+        block_data = hex_data[: length * 2]
 
         return {
             "status": True,
@@ -750,6 +761,28 @@ class ER302_Reader:
             }
 
         for block, block_data in sorted(to_write.items()):
+            # Determine if block is trailer; block cannot be overwritten safely
+            if block < 0 or block > 255:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": f"Invalid block number: {block}",
+                    "readerstatus": "BAD_REQUEST"
+                }
+
+            if block < 128:
+                is_trailer = (block % 4 == 3)
+            else:
+                is_trailer = ((block - 128) % 16 == 15)
+
+            if is_trailer:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": f"Cannot write trailer block {block}",
+                    "readerstatus": "BAD_REQUEST"
+                }
+
             print(f"DEBUG: Writing block {block} with data {block_data}")
 
             if not self.write_block(block, list(block_data), KEY_A, block_key):
