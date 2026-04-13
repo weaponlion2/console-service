@@ -29,7 +29,7 @@ CMD_M1_READ     = [0x08, 0x02]
 CMD_M1_WRITE    = [0x09, 0x02]
 
 # Parameters
-TYPE_A = ord('A')
+TYPE_A = ord('A') # integer Unicode code point value A, Decimal = 65, Hexadecimal = 0x41
 RF_ON = 0x01
 RF_OFF = 0x00
 REQ_ALL = 0x52

@@ -1,6 +1,8 @@
+import sys
 from app.schemas.card import PatronRequest as ReaderRequest, MemoryUpdateRequest
-from app.integrations.ER302_Reader import ER302_Reader, ER303_TIMEOUT_SEC, ER303_DEFAULT_BAUD, ER303_DEFAULT_PORT
+from app.integrations.ER302_Reader import ER302_Reader, ER303_DEFAULT_BAUD, ER303_DEFAULT_PORT
 from app.integrations.HID_Reader import HID_Reader
+from app.utils.detect_port import find_cp2102
 
 ReaderList = {
     "CELRDR": "CELRDR",
@@ -22,10 +24,18 @@ class ReaderClient:
         }.get(readerType, False)
 
     
-    def __create_er302_reader(self):
+    def __create_er302_reader(self, port=None):
         self.__close_reader()
 
-        reader = ER302_Reader(ER303_DEFAULT_PORT, ER303_DEFAULT_BAUD)
+        if port is None or port == "" or port == "auto":
+            port = find_cp2102()
+            if port is None and sys.platform.startswith('win'):
+                return self.__fail("ER302 Reader not detected on any port", "NO_READER")
+            elif port is None:
+                port = ER303_DEFAULT_PORT
+
+        print(f"Attempting to connect ER302 Reader on port: {port}")
+        reader = ER302_Reader(port, ER303_DEFAULT_BAUD)
         if not reader.open():
             return self.__fail("ER302 Reader not connected", "NO_READER")
 
@@ -131,6 +141,7 @@ class ReaderClient:
 
     def __get_reader(self, payload: ReaderRequest):
         reader_type = payload.get("reader")
+        reader_port = payload.get("port")
 
         if not self.__isReaderValid(reader_type):
             return self.__fail("Invalid reader type", "READER_INVALID")
@@ -138,7 +149,7 @@ class ReaderClient:
         if reader_type == ReaderList["CELRDR"]:
             if self.er302Reader is not None:
                 return self.__success(self.er302Reader, "ER302 Reader connected")
-            return self.__create_er302_reader()
+            return self.__create_er302_reader(reader_port)
 
         if reader_type == ReaderList["HIDOK"]:
             if self.hidReader is not None:

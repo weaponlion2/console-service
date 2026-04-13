@@ -11,3 +11,8 @@ myenv
 build/
 dist/
 main.spec
+*.spec
+*.log
+*.bak
+*.tmp
+*.zip

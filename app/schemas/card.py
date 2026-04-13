@@ -3,7 +3,7 @@ from typing import Optional
 
 class ReaderRequest(BaseModel):
     reader: str
-    port: int = 0
+    port: str = ""
 
     
 class MemoryRequest(BaseModel):
@@ -42,3 +42,6 @@ class SecureSectorRequest(BaseModel):
     
 class HexStringRequest(BaseModel):
     data: str
+
+class SerialKeyRequest(BaseModel):
+    serial_key: str
