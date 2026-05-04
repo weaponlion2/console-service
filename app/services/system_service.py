@@ -1,13 +1,6 @@
-import platform
-import uuid
-import subprocess
-import hashlib
-import base64, re
-from typing import Optional, Dict
-
-from Crypto.Cipher import AES
-from Crypto.Protocol.KDF import PBKDF1
-from Crypto.Util.Padding import pad
+import platform 
+import subprocess, re
+from typing import Optional
 
 
 APP_CODE = "RFIDCloud"
