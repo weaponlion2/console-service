@@ -1,5 +1,5 @@
 import sys
-from app.schemas.card import PatronRequest as ReaderRequest, MemoryUpdateRequest
+from app.schemas.card import InternalPatronRequest as ReaderRequest, MemoryUpdateRequest
 from app.integrations.ER302_Reader import ER302_Reader, ER303_DEFAULT_BAUD, ER303_DEFAULT_PORT
 from app.integrations.HID_Reader import HID_Reader
 from app.utils.detect_port import find_cp2102

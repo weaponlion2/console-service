@@ -1,6 +1,5 @@
 import sys
-import os
-import time
+import os, platform
 
 class FeigReaderProvider:
     """
@@ -15,8 +14,10 @@ class FeigReaderProvider:
         """
         self._setup_dlls(package_path)
         
+        packageName = "feig_reader_window" if platform.system().lower() == "Windows".lower() else "feig_reader_linux"
+        print(f"Using package: {packageName}")
         # Add package to sys.path
-        abs_package_path = os.path.abspath(f"{package_path}/feig_reader_window")
+        abs_package_path = os.path.abspath(f"{package_path}/" + packageName)
         if abs_package_path not in sys.path:
             sys.path.append(abs_package_path)
             
@@ -31,9 +32,10 @@ class FeigReaderProvider:
             raise ImportError(f"Could not find 'feig_reader' package in {abs_package_path}. "
                               "Ensure the project is built and the path is correct.") from e
 
+    
     def _setup_dlls(self, package_path):
         """Setup Windows DLL search paths for the FEIG SDK."""
-        if sys.platform == 'win32':
+        if platform.system().lower() == "Windows".lower():
             dll_dir = os.path.abspath(os.path.join(package_path, "feig_reader_window"))
             if os.path.exists(dll_dir):
                 # Add to PATH for older DLL loading
@@ -43,6 +45,14 @@ class FeigReaderProvider:
                     os.add_dll_directory(dll_dir)
             else:
                 print(f"Warning: DLL directory not found at {dll_dir}")
+        else:
+            # For Linux, ensure the shared library path is set
+            lib_dir = os.path.abspath(os.path.join(package_path, "feig_reader_linux"))
+            if os.path.exists(lib_dir):
+                os.environ['LD_LIBRARY_PATH'] = lib_dir + os.pathsep + os.environ.get('LD_LIBRARY_PATH', '')
+            else:
+                print(f"Warning: Shared library directory not found at {lib_dir}")
+
 
     def connect(self):
         """Connect to the first available USB reader."""
@@ -74,7 +84,7 @@ class FeigReaderProvider:
         except Exception:
             return []
 
-    def read_tag(self, tag_idx=0, startBlock=0, noOfBlocks=4):
+    def read_tag(self, tag_idx=0, offset=0, noOfBlocks=4):
         """
         Read data from a tag.
         :return: Hex string of data or None if failed.
@@ -83,11 +93,11 @@ class FeigReaderProvider:
             return None
             
         try:
-            return self.reader.read(idx=tag_idx, startBlock=startBlock, noOfBlocks=noOfBlocks)
+            return self.reader.read(idx=tag_idx, offset=offset, noOfBlocks=noOfBlocks)
         except Exception:
             return None
 
-    def write_tag(self, tag_idx=0, startBlock=0, data=None):
+    def write_tag(self, tag_idx=0, offset=0, data=None):
         """
         Write data to a tag.
         :return: True if successful, False otherwise.
@@ -96,7 +106,7 @@ class FeigReaderProvider:
             return False
             
         try:
-            self.reader.write(idx=tag_idx, startBlock=startBlock, data=data)
+            self.reader.write(idx=tag_idx, offset=offset, data=data)
             return True
         except Exception:
             return False

@@ -52,9 +52,9 @@ class FeigClient:
             raise ValueError(f"Invalid tagId: {tagId}. Must be between 0 and {len(tags)-1}")
         
         print(f"tags: {tagIndx}")
-        startBlock = request.get('startBlock', 0)
+        offset = request.get('offset', 0)
         noOfBlocks = request.get('noOfBlocks', 4)
-        return self.provider.read_tag(tag_idx=tagIndx, startBlock=startBlock, noOfBlocks=noOfBlocks)
+        return self.provider.read_tag(tag_idx=tagIndx, offset=offset, noOfBlocks=noOfBlocks)
 
     def write_tag(self, request):
         if not self.provider or not self.provider.is_connected:
@@ -78,6 +78,6 @@ class FeigClient:
         if tagIndx < 0 or tagIndx >= len(tags):
             raise ValueError(f"Invalid tagId: {tagId}. Must be between 0 and {len(tags)-1}")
 
-        startBlock = request.get('startBlock', 0)
+        offset = request.get('offset', 0)
 
-        return self.provider.write_tag(tag_idx=tagIndx, startBlock=startBlock, data=data)
+        return self.provider.write_tag(tag_idx=tagIndx, offset=offset, data=data)
