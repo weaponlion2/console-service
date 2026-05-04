@@ -1,0 +1,118 @@
+import sys
+import os
+import time
+
+class FeigReaderProvider:
+    """
+    A high-level provider to interact with FEIG RFID Readers.
+    Designed for 'plug and call' usage.
+    """
+    
+    def __init__(self, package_path="app/sdk/feig"):
+        """
+        Initialize the provider and setup DLL dependencies.
+        :param package_path: Path to the directory containing the 'feig_reader' package.
+        """
+        self._setup_dlls(package_path)
+        
+        # Add package to sys.path
+        abs_package_path = os.path.abspath(f"{package_path}/feig_reader_window")
+        if abs_package_path not in sys.path:
+            sys.path.append(abs_package_path)
+            
+        try:
+            # print(f"Attempting to import 'feig_reader' from {abs_package_path}")
+            # print(f"Current sys.path: {sys.path}")
+            import feig_reader  # Ensure this matches the actual package structure
+            # print(f"Import : {feig_reader}")  
+            self.reader = feig_reader.Reader()
+            self.is_connected = False
+        except ImportError as e:
+            raise ImportError(f"Could not find 'feig_reader' package in {abs_package_path}. "
+                              "Ensure the project is built and the path is correct.") from e
+
+    def _setup_dlls(self, package_path):
+        """Setup Windows DLL search paths for the FEIG SDK."""
+        if sys.platform == 'win32':
+            dll_dir = os.path.abspath(os.path.join(package_path, "feig_reader_window"))
+            if os.path.exists(dll_dir):
+                # Add to PATH for older DLL loading
+                os.environ['PATH'] = dll_dir + os.pathsep + os.environ['PATH']
+                # Add to DLL directory for Python 3.8+
+                if hasattr(os, 'add_dll_directory'):
+                    os.add_dll_directory(dll_dir)
+            else:
+                print(f"Warning: DLL directory not found at {dll_dir}")
+
+    def connect(self):
+        """Connect to the first available USB reader."""
+        try:
+            self.reader.connect_usb()
+            self.is_connected = True
+            return True
+        except Exception:
+            return False
+
+    def disconnect(self):
+        """Disconnect the reader."""
+        if self.is_connected:
+            try:
+                self.reader.disconnect()
+            finally:
+                self.is_connected = False
+
+    def inventory(self, timeout_ms=1000):
+        """
+        Perform an inventory scan.
+        :return: List of TagInfo objects or empty list on failure.
+        """
+        if not self.is_connected:
+            return []
+            
+        try:
+            return self.reader.inventory(timeout_ms=timeout_ms)
+        except Exception:
+            return []
+
+    def read_tag(self, tag_idx=0, startBlock=0, noOfBlocks=4):
+        """
+        Read data from a tag.
+        :return: Hex string of data or None if failed.
+        """
+        if not self.is_connected:
+            return None
+            
+        try:
+            return self.reader.read(idx=tag_idx, startBlock=startBlock, noOfBlocks=noOfBlocks)
+        except Exception:
+            return None
+
+    def write_tag(self, tag_idx=0, startBlock=0, data=None):
+        """
+        Write data to a tag.
+        :return: True if successful, False otherwise.
+        """
+        if not self.is_connected:
+            return False
+            
+        try:
+            self.reader.write(idx=tag_idx, startBlock=startBlock, data=data)
+            return True
+        except Exception:
+            return False
+
+# Usage Example
+# if __name__ == "__main__":
+#     service = FeigReaderService()
+#     if service.connect():
+#         try:
+#             tags = service.inventory()
+#             for tag in tags:
+#                 print(f"Found: {tag.id}")
+                
+#             if tags:
+#                 data = service.read_tag(tag_idx=0)
+#                 if data:
+#                     print(f"Data: {data}")
+#         finally:
+#             service.disconnect()

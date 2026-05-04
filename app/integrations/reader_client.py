@@ -309,6 +309,3 @@ class ReaderClient:
             }
             
             return self.__check_reader(response, "readMemory")
-
-    
-            
