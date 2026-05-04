@@ -10,16 +10,6 @@ from Crypto.Protocol.KDF import PBKDF1
 from Crypto.Util.Padding import pad
 
 
-# =============================
-# C# ENCRYPTION CONFIG (MUST MATCH)
-# =============================
-
-PASSPHRASE = "D4i5w6e7s8H9"
-SALT = b"ZEDON"
-ITERATIONS = 2
-KEY_SIZE = 32  # 256-bit
-IV = b"@1B2c3D4e5F6g7H8"
-
 APP_CODE = "RFIDCloud"
 PRODUCT_NAME = "RFID Cloud Service"
 
@@ -89,7 +79,7 @@ class HardwareInfo:
 
         elif platform.system() == "Linux":
             try:
-                with open("/sys/class/dmi/id/sys_vendor") as f:
+                with open("/sys/class/dmi/id/board_vendor") as f:
                     return clean_value(f.read(), "Unknown")
             except:
                 pass
@@ -106,7 +96,7 @@ class HardwareInfo:
 
         elif platform.system() == "Linux":
             try:
-                with open("/sys/class/dmi/id/product_name") as f:
+                with open("/sys/class/dmi/id/board_name") as f:
                     return clean_value(f.read(), platform.machine())
             except:
                 pass
@@ -160,57 +150,6 @@ def from_hex_string(value: str) -> str:
     return bytes.fromhex(value).decode("utf-8")
 
 
-def unpad(data: bytes) -> bytes:
-    return data[:-data[-1]]
-
-
-
-def derive_key_passwordderivebytes(passphrase: str, salt: bytes, iterations: int, key_length: int) -> bytes:
-    """
-    Microsoft PasswordDeriveBytes implementation (non-standard PBKDF1 extension).
-    
-    Critical: .NET PasswordDeriveBytes encodes the passphrase string as UTF-16LE (Unicode).
-    """
-    # UTF-16LE encoding for passphrase (matches .NET PasswordDeriveBytes behavior)
-    password_bytes = passphrase.encode('utf-16-le')
-    
-    # Generate first 20-byte block (SHA1 output size)
-    hash_bytes = hashlib.sha1(password_bytes + salt).digest()
-    for _ in range(1, iterations):
-        hash_bytes = hashlib.sha1(hash_bytes).digest()
-    
-    key = hash_bytes
-    
-    # Generate additional blocks if key_length > 20 bytes
-    counter = 1
-    while len(key) < key_length:
-        # Counter as 4-byte big-endian integer (matches .NET behavior)
-        data = hash_bytes + counter.to_bytes(4, byteorder='big')
-        block = hashlib.sha1(data).digest()
-        for _ in range(1, iterations):
-            block = hashlib.sha1(block).digest()
-        key += block
-        counter += 1
-    
-    return key[:key_length]
-
-
-def encrypt(plain_text: str) -> str:
-    """Encrypt plaintext using AES-256-CBC with PKCS7 padding, base64 output."""
-    key = derive_key_passwordderivebytes(PASSPHRASE, SALT, ITERATIONS, KEY_SIZE)
-    cipher = AES.new(key, AES.MODE_CBC, IV)
-    padded = pad(plain_text.encode('utf-8'), AES.block_size)  # PKCS7 padding (matches .NET default)
-    encrypted = cipher.encrypt(padded)
-    return base64.b64encode(encrypted).decode('ascii')
-
-def decrypt(cipher_text: str) -> str:
-    key = derive_key_passwordderivebytes()
-    cipher = AES.new(key, AES.MODE_CBC, IV)
-
-    decrypted = cipher.decrypt(base64.b64decode(cipher_text))
-    return unpad(decrypted).decode()
-
-
 # =============================
 # SERIAL KEY GENERATION
 # =============================
@@ -236,44 +175,3 @@ def generate_serial_key() -> str:
     
     return (raw)
 
-
-# =============================
-# VALIDATION
-# =============================
-
-def validate_serial_key(serial_key: str) -> Dict[str, str]:
-    try:
-        decrypted = decrypt(serial_key)
-
-        parts = decrypted.split(":")
-
-        if len(parts) != 4:
-            raise ValueError("Invalid format")
-
-        make = from_hex_string(parts[0])
-        model = from_hex_string(parts[1])
-        serial = from_hex_string(parts[2])
-        app_code = from_hex_string(parts[3])
-
-        if app_code != APP_CODE:
-            raise ValueError("Invalid app code")
-
-        current_make = normalize(HardwareInfo.get_manufacturer())
-        current_model = normalize(HardwareInfo.get_model())
-        current_serial = normalize(HardwareInfo.get_serial())
-
-        if [make, model, serial] != [current_make, current_model, current_serial]:
-            raise ValueError("Device mismatch")
-
-        return {
-            "status": "valid",
-            "manufacturer": make,
-            "model": model,
-            "serial": serial
-        }
-
-    except Exception as e:
-        return {
-            "status": "invalid",
-            "error": str(e)
-        }

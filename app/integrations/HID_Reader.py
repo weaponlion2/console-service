@@ -1,8 +1,5 @@
-import asyncio
-from fastapi import HTTPException 
 from smartcard.System import readers
-from smartcard.Exceptions import NoCardException, CardConnectionException
-import time
+from smartcard.Exceptions import NoCardException
 
 
 # MIFARE default key and block

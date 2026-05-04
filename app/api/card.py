@@ -1,9 +1,9 @@
 import sys
 from fastapi import APIRouter, Query
-from app.schemas.card import HexStringRequest, ReaderRequest, MemoryRequest, SecureSectorRequest, MemoryUpdateRequest, SerialKeyRequest
+from app.schemas.card import HexStringRequest, ReaderRequest, MemoryRequest, SecureSectorRequest, MemoryUpdateRequest
 from app.services.card_service import CardService
 from app.integrations.reader_client import ReaderClient
-from app.services.system_service import generate_serial_key, validate_serial_key
+from app.services.system_service import generate_serial_key
 from app.utils.detect_port import find_cp2102
 
 router = APIRouter()
@@ -35,14 +35,6 @@ def sector_key(request: SecureSectorRequest):
 def health():
     return "Service is running"
 
-@router.post("/login")
-def login():
-    return {
-        "sessionid": 
-            "5pPS0Tc5kUOTr1HPARhHoSh18pSqXMJWB1/3/pFL1TlPqAl74DzJS2RF2/fDJttTpM1dcz/d0+oNbWx+TYNSdQ==",
-            "status": "success",
-            "updaterequired": False
-            }
     
 
 @router.get("/serialkey")
@@ -60,27 +52,6 @@ def serial_key():
         }
     
 
-@router.post("/serialinfo")
-def serial_info(request: SerialKeyRequest):
-    try:
-        device_info = validate_serial_key(request.serial_key)
-        
-        if "error" in device_info:
-            return {
-                "status": "fail",
-                "message": device_info["error"]
-            }
-
-        return {
-            "status": "success",
-            "device_info": device_info
-        }
-    except Exception as e:
-        return {
-            "status": "fail",
-            "message": str(e)
-        }
-    
 
 @router.post("/str-to-hex")
 def str_to_hex(request: HexStringRequest):
