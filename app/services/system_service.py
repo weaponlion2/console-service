@@ -50,7 +50,7 @@ def run_powershell(command: str | list[str]) -> Optional[str]:
                 return subprocess.check_output(                 
                     command,                 
                     text=True             
-                    ).strip()          
+                    ).strip()
     except:         
         return None
 
@@ -99,16 +99,21 @@ class HardwareInfo:
     @staticmethod
     def get_serial() -> str:
         value = None
+        print("Platform : ", platform.system())
         if platform.system() == "Windows":
             value = run_powershell(
-                "(Get-CimInstance Win32_Processor).ProcessorId"
+                "(Get-CimInstance Win32_DiskDrive).SerialNumber"
             )
+            print("Serial B : ", value)
             value = clean_value(value, "")
+            print("Serial : ", value)
             if not value:
                 value = run_powershell(
-                    "(Get-CimInstance Win32_DiskDrive).SerialNumber"
+                    "(Get-CimInstance Win32_Processor).ProcessorId"
                 )
+                print("Process B : ", value)
                 value = clean_value(value, "")
+                print("Process : ", value)
 
         elif platform.system() == "Linux":
             commands = [

@@ -202,6 +202,11 @@ class ER302_Reader:
             logger.error("Attempted to send command while serial port is not open")
             raise RuntimeError("Serial port not open")
 
+        # Flush input buffer to ensure we don't read stale data from previous failed commands
+        try:
+            self.ser.reset_input_buffer()
+        except Exception as e:
+            logger.warning(f"Failed to reset input buffer: {e}")
 
         if params is None:
             params = []
@@ -240,11 +245,18 @@ class ER302_Reader:
             return None, None, None, "Port closed"
 
         try:
-            # 1. Read Header
-            h1 = self.ser.read(1)
-            if not h1 or h1[0] != HEAD_1:
-                logger.warning(f"Receive response failed: Header 1 Fail. Received: {h1.hex() if h1 else 'None'}")
-                return None, None, None, "Header 1 Fail"
+            # 1. Read Header (Sync to HEAD_1)
+            # We skip any bytes until we find 0xAA to handle desynchronization
+            while True:
+                h1 = self.ser.read(1)
+                if not h1:
+                    logger.warning("Receive response failed: Timeout waiting for Header 1 (0xAA)")
+                    return None, None, None, "Header 1 Timeout"
+                
+                if h1[0] == HEAD_1:
+                    break
+                else:
+                    logger.debug(f"Sync: skipping unexpected byte 0x{h1.hex()} while waiting for 0xAA")
             
             h2 = self.ser.read(1)
             if not h2 or h2[0] != HEAD_2:
