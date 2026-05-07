@@ -16,3 +16,5 @@ main.spec
 *.bak
 *.tmp
 *.zip
+app/logs/
+scratch/

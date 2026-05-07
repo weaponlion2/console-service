@@ -1,4 +1,6 @@
-import serial, os, time, math
+import serial, os, time, math, threading
+from app.workers.logger import logger
+
 
 class AuthenticationError(Exception):
     """Raised when a card block authentication fails."""
@@ -152,29 +154,34 @@ class ER302_Reader:
         self.port = port
         self.baud = baud
         self.ser = None
+        self.lock = threading.Lock()
 
     def open(self):
-        try:
-            self.ser = serial.Serial(
-                port=self.port,
-                baudrate=self.baud,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=ER303_TIMEOUT_SEC,
-                write_timeout=ER303_TIMEOUT_SEC
-            )
-            # Disable flow control
-            self.ser.xonxoff = False
-            self.ser.rtscts = False
-            self.ser.dsrdtr = False
-            return True
-        except serial.SerialException as e:
-            return False
+        with self.lock:
+            try:
+                self.ser = serial.Serial(
+                    port=self.port,
+                    baudrate=self.baud,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    timeout=ER303_TIMEOUT_SEC,
+                    write_timeout=ER303_TIMEOUT_SEC
+                )
+                # Disable flow control
+                self.ser.xonxoff = False
+                self.ser.rtscts = False
+                self.ser.dsrdtr = False
+                logger.info(f"Successfully opened serial port: {self.port}")
+                return True
+            except serial.SerialException as e:
+                logger.error(f"Failed to open serial port {self.port}: {e}")
+                return False
 
     def close(self):
         if self.ser and self.ser.is_open:
             self.ser.close()
+            logger.info(f"Closed serial port: {self.port}")
 
     def _calc_checksum(self, dev_id, cmd_code, status_or_params):
         ver = 0
@@ -192,6 +199,7 @@ class ER302_Reader:
         Implements the 0xAA escaping logic found in er302.c send_command().
         """
         if not self.ser:
+            logger.error("Attempted to send command while serial port is not open")
             raise RuntimeError("Serial port not open")
 
 
@@ -218,6 +226,7 @@ class ER302_Reader:
         # Append Checksum
         tx_buf.append(ver)
 
+        logger.debug(f"TX: {bytes(tx_buf).hex()}")
         self.ser.write(bytes(tx_buf))
         # Debug: print(f"TX: {' '.join(f'{b:02X}' for b in tx_buf)}")
 
@@ -234,10 +243,12 @@ class ER302_Reader:
             # 1. Read Header
             h1 = self.ser.read(1)
             if not h1 or h1[0] != HEAD_1:
+                logger.warning(f"Receive response failed: Header 1 Fail. Received: {h1.hex() if h1 else 'None'}")
                 return None, None, None, "Header 1 Fail"
             
             h2 = self.ser.read(1)
             if not h2 or h2[0] != HEAD_2:
+                logger.warning(f"Receive response failed: Header 2 Fail. Received: {h2.hex() if h2 else 'None'}")
                 return None, None, None, "Header 2 Fail"
 
             # 2. Read Length
@@ -289,32 +300,37 @@ class ER302_Reader:
             calc_ver = self._calc_checksum(dev_id, cmd_code, [status] + data)
             
             if act_ver_byte and act_ver_byte[0] != calc_ver:
+                logger.warning(f"Checksum mismatch: expected {calc_ver:02X}, got {act_ver_byte[0]:02X}")
                 # Warning only, proceed anyway as some implementations vary slightly
-                pass
 
             return dev_id, cmd_code, status, data
 
         except Exception as e:
+            logger.error(f"Recv response exception: {e}", exc_info=True)
             return None, None, None, f"Recv response exception: {e}"
 
     def init_reader(self):
         """Initialize the reader hardware."""
         # Get Model
+        logger.info(f"Intailizing Reader")
         self._send_cmd(CMD_GET_MODEL)
         _, _, status, data = self._recv_resp()
         if status != 0x00:
+            logger.error(f"init_reader: Get Model failed with status {status:02X}")
             return False
 
         # Init Type A
         self._send_cmd(CMD_INIT_TYPE, [TYPE_A])
         _, _, status, _ = self._recv_resp()
         if status != 0x00:
+            logger.error(f"init_reader: Init Type A failed with status {status:02X}")
             return False
 
         # Antenna On
         self._send_cmd(CMD_ANTENNA, [RF_ON])
         _, _, status, _ = self._recv_resp()
         if status != 0x00:
+            logger.error(f"init_reader: Antenna On failed with status {status:02X}")
             return False
 
         # Beep & Light
@@ -323,18 +339,23 @@ class ER302_Reader:
         self._send_cmd(CMD_LIGHT, [LED_BLUE])
         self._recv_resp()
         
+        logger.info("ER302 Reader initialized successfully")
         return True
 
     def select_card(self, uid_bytes):
         """Selects the card using its UID."""
         self._send_cmd(CMD_SELECT, list(uid_bytes))
         _, _, status, _ = self._recv_resp()
+        if status == 0x00:
+            logger.info(f"Card selected successfully. UID: {uid_bytes.hex() if isinstance(uid_bytes, bytes) else uid_bytes}")
         return status == 0x00
 
     def auth_block(self, block, key_type=KEY_A, key=DEFAULT_KEY):
         params = [key_type, block] + key
         self._send_cmd(CMD_M1_AUTH, params)
         _, _, status, _ = self._recv_resp()
+        if status == 0x00:
+            logger.debug(f"Authentication successful for block {block}")
         return status == 0x00
 
     def write_block(self, block, data, key_type=KEY_A, key=DEFAULT_KEY):
@@ -368,6 +389,7 @@ class ER302_Reader:
         self._send_cmd(CMD_M1_READ, [block])
         _, _, status, data = self._recv_resp()
         if status == 0x00 and len(data) >= 16:
+            logger.debug(f"Successfully read block {block}")
             return data
         return None
 
@@ -400,65 +422,68 @@ class ER302_Reader:
         return None, "ANTICOLL_FAIL"
 
     def read_uid(self):
-        if not self.ser or not self.ser.is_open:
-            return {
-                "status": False,
-                "data": None,
-                "message": "Reader not ready",
-                "readerstatus": "READER_NOT_READY"
-            }
-
-        uid, err = self._find_card_uid()
-        if err:
-            if err == "NO_CARD":
+        with self.lock:
+            if not self.ser or not self.ser.is_open:
                 return {
                     "status": False,
                     "data": None,
-                    "message": "No card available on machine",
-                    "readerstatus": "NO_CARD"
+                    "message": "Reader not ready",
+                    "readerstatus": "READER_NOT_READY"
                 }
-            return {
-                "status": False,
-                "data": None,
-                "message": "Anticollision failed after retries",
-                "readerstatus": "ANTICOLL_FAIL"
-            }
 
-        uid_str = "".join(f"{b:02X}" for b in uid)
-        return {
-            "status": True,
-            "data": uid_str,
-            "message": "Card uid value",
-            "readerstatus": "CARD_VALID"
-        }
+            uid, err = self._find_card_uid()
+            if err:
+                if err == "NO_CARD":
+                    return {
+                        "status": False,
+                        "data": None,
+                        "message": "No card available on machine",
+                        "readerstatus": "NO_CARD"
+                    }
+                logger.warning(f"read_uid failed: {err}")
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "Anticollision failed after retries",
+                    "readerstatus": "ANTICOLL_FAIL"
+                }
+
+            uid_str = "".join(f"{b:02X}" for b in uid)
+            logger.info(f"Card detected. UID: {uid_str}")
+            return {
+                "status": True,
+                "data": uid_str,
+                "message": "Card uid value",
+                "readerstatus": "CARD_VALID"
+            }
     
     
     def read_memory(self, payload):
-        
-        if not self.ser or not self.ser.is_open:
-            return {
-                "status": False,
-                "data": None,
-                "message": "Reader not ready",
-                "readerstatus": "READER_NOT_READY"
-            }
+        with self.lock:
+            if not self.ser or not self.ser.is_open:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "Reader not ready",
+                    "readerstatus": "READER_NOT_READY"
+                }
 
-        uid, err = self._find_card_uid()
-        if err:
-            return {
-                "status": False,
-                "data": None,
-                "message": "No card available on machine" if err == "NO_CARD" else "Anticollision failed after retries",
-                "readerstatus": err
-            }
+            uid, err = self._find_card_uid()
+            if err:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "No card available on machine" if err == "NO_CARD" else "Anticollision failed after retries",
+                    "readerstatus": err
+                }
 
-        processResponse = self.processBlocks(uid, payload)
-        return {
-            "status": processResponse["status"],
-            "data": processResponse.get("memData"),
-            "message": processResponse["message"],
-            "readerstatus": processResponse["readerstatus"]
-        }
+            processResponse = self.processBlocks(uid, payload)
+            return {
+                "status": processResponse["status"],
+                "data": processResponse.get("memData"),
+                "message": processResponse["message"],
+                "readerstatus": processResponse["readerstatus"]
+            }
 
 
     def processBlocks(self, uid_bytes, payload):
@@ -482,6 +507,7 @@ class ER302_Reader:
 
         for block in blocks:
             if not self.auth_block(block, KEY_A, block_key):
+                logger.error(f"processBlocks: Block {block} authentication failed for UID {uid_bytes.hex() if isinstance(uid_bytes, bytes) else uid_bytes}")
                 return {
                     "status": False,
                     "memData": None,
@@ -492,6 +518,7 @@ class ER302_Reader:
             data = self.read_block(block)
             # print(f"DEBUG: Read block {block}: {data}")
             if data is None:
+                logger.error(f"processBlocks: Error while reading block {block}")
                 return {
                     "status": False,
                     "memData": None,
@@ -512,6 +539,7 @@ class ER302_Reader:
         hex_data = ER302_Reader.byte_array_to_hex(block_data)
         block_data = hex_data[: length * 2]
 
+        logger.info(f"Successfully read {length} bytes from blocks starting at {block_start_no}")
         return {
             "status": True,
             "memData": block_data,
@@ -521,31 +549,31 @@ class ER302_Reader:
 
     
     def change_sector_key(self, payload):
-        
-        if not self.ser or not self.ser.is_open:
-            return {
-                "status": False,
-                "data": None,
-                "message": "Reader not ready",
-                "readerstatus": "READER_NOT_READY"
-            }
+        with self.lock:
+            if not self.ser or not self.ser.is_open:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "Reader not ready",
+                    "readerstatus": "READER_NOT_READY"
+                }
 
-        uid, err = self._find_card_uid()
-        if err:
-            return {
-                "status": False,
-                "data": None,
-                "message": "No card available on machine" if err == "NO_CARD" else "Anticollision failed after retries",
-                "readerstatus": err
-            }
+            uid, err = self._find_card_uid()
+            if err:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "No card available on machine" if err == "NO_CARD" else "Anticollision failed after retries",
+                    "readerstatus": err
+                }
 
-        processResponse = self.change_sector_key_process(uid, payload)
-        return {
-            "status": processResponse["status"],
-            "data": processResponse.get("data"),
-            "message": processResponse["message"],
-            "readerstatus": processResponse["readerstatus"]
-        }
+            processResponse = self.change_sector_key_process(uid, payload)
+            return {
+                "status": processResponse["status"],
+                "data": processResponse.get("data"),
+                "message": processResponse["message"],
+                "readerstatus": processResponse["readerstatus"]
+            }
 
 
     def change_sector_key_process(self, uid_bytes, payload):
@@ -580,6 +608,7 @@ class ER302_Reader:
         # print(f"DEBUG: Changing sector {sector} with trailer block {trailer_block}, current_key {current_key}, new_key {new_key}, keyB {keyB}")
 
         if not self.select_card(uid_bytes):
+            logger.error(f"change_sector_key_process: Card selection failed for UID {uid_bytes.hex() if isinstance(uid_bytes, bytes) else uid_bytes}")
             return {
                 "status": False,
                 "memData": None,
@@ -589,6 +618,7 @@ class ER302_Reader:
 
         # authenticate with old key
         if not self.auth_block(trailer_block, KEY_A, current_key):
+            logger.error(f"change_sector_key_process: Failed to auth trailer block {trailer_block} with current key")
             return {
                 "status": False,
                 "data": None,
@@ -598,6 +628,7 @@ class ER302_Reader:
 
         old_trailer = self.read_block(trailer_block)
         if old_trailer is None:
+            logger.error(f"change_sector_key_process: Failed to read trailer block {trailer_block}")
             return {
                 "status": False,
                 "data": None,
@@ -620,6 +651,7 @@ class ER302_Reader:
             }
 
         if not self.write_blockWithoutSectorProtection(trailer_block, list(new_trailer), KEY_A, current_key):
+            logger.error(f"change_sector_key_process: Failed to write new trailer data to block {trailer_block}")
             return {
                 "status": False,
                 "data": None,
@@ -627,6 +659,7 @@ class ER302_Reader:
                 "readerstatus": "KEY_CHANGE_FAILED"
             }
 
+        logger.info(f"Successfully changed key for sector {sector}")
         return {
             "status": True,
             "data": None,
@@ -636,31 +669,31 @@ class ER302_Reader:
 
     
     def write_memory(self, payload):
-        
-        if not self.ser or not self.ser.is_open:
-            return {
-                "status": False,
-                "data": None,
-                "message": "Reader not ready",
-                "readerstatus": "READER_NOT_READY"
-            }
+        with self.lock:
+            if not self.ser or not self.ser.is_open:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "Reader not ready",
+                    "readerstatus": "READER_NOT_READY"
+                }
 
-        uid, err = self._find_card_uid()
-        if err:
-            return {
-                "status": False,
-                "data": None,
-                "message": "No card available on machine" if err == "NO_CARD" else "Anticollision failed after retries",
-                "readerstatus": err
-            }
+            uid, err = self._find_card_uid()
+            if err:
+                return {
+                    "status": False,
+                    "data": None,
+                    "message": "No card available on machine" if err == "NO_CARD" else "Anticollision failed after retries",
+                    "readerstatus": err
+                }
 
-        processResponse = self.write_memory_process(uid, payload)
-        return {
-            "status": processResponse["status"],
-            "data": processResponse.get("data"),
-            "message": processResponse["message"],
-            "readerstatus": processResponse["readerstatus"]
-        }
+            processResponse = self.write_memory_process(uid, payload)
+            return {
+                "status": processResponse["status"],
+                "data": processResponse.get("data"),
+                "message": processResponse["message"],
+                "readerstatus": processResponse["readerstatus"]
+            }
     
     
     def write_memory_process(self, uid_bytes, payload):
@@ -730,12 +763,14 @@ class ER302_Reader:
             }
 
         if not self.select_card(uid_bytes):
+            logger.error(f"write_memory_process: Card selection failed for UID {uid_bytes.hex() if isinstance(uid_bytes, bytes) else uid_bytes}")
             return {
                 "status": False,
                 "memData": None,
                 "message": "Card not selected",
                 "readerstatus": "CARD_NOT_SELECTED"
             }
+
 
         for block, block_data in sorted(to_write.items()):
             if block < 0 or block > 255:
@@ -757,6 +792,7 @@ class ER302_Reader:
             # print(f"DEBUG: Writing block {block} with data {block_data}")
 
             if not self.write_block(block, list(block_data), KEY_A, block_key):
+                logger.error(f"write_memory_process: Failed to write memory block {block}")
                 return {
                     "status": False,
                     "data": None,
@@ -764,7 +800,7 @@ class ER302_Reader:
                     "readerstatus": "FAILED_TO_WRITE_BLOCK"
                 }
 
-
+        logger.info(f"Successfully wrote data to blocks starting at {block_start_no}")
         return {
             "status": True,
             "data": None,
