@@ -110,19 +110,63 @@ class FeigReaderProvider:
             return True
         except Exception:
             return False
+    
+            
+    def write_eas(self, tag_idx=0, value=True):
+        """
+        Write eas status to a tag.
+        :return: True if successful, False otherwise.
+        """
+        if not self.is_connected:
+            return False
+            
+        try:
+            self.reader.write_eas(idx=tag_idx, enabled=value)
+            return True
+        except Exception:   
+            return False
 
-# Usage Example
-# if __name__ == "__main__":
-#     service = FeigReaderService()
-#     if service.connect():
-#         try:
-#             tags = service.inventory()
-#             for tag in tags:
-#                 print(f"Found: {tag.id}")
-                
-#             if tags:
-#                 data = service.read_tag(tag_idx=0)
-#                 if data:
-#                     print(f"Data: {data}")
-#         finally:
-#             service.disconnect()
+    def read_eas(self, tag_idx=0):
+        """
+        Read eas status from a tag.
+        :return: Boolean string of data or None if failed.
+        """
+        if not self.is_connected:
+            return None
+            
+        try:
+            value = self.reader.read_eas(idx=tag_idx) 
+            return True if value == "true" else False
+        except Exception as ex:
+            print(ex)
+            return None
+
+    def write_afi(self, tag_idx=0, afiValue="0"):
+        """
+        Write afi value to a tag.
+        :return: True if successful, False otherwise.
+        """
+        if not self.is_connected:
+            return False
+            
+        try:
+            self.reader.write_afi(idx=tag_idx, afiValue=afiValue.__str__())
+            return True
+        except Exception as ex:
+            print(ex)
+            return False
+
+    def read_afi(self, tag_idx=0):
+        """
+        Read afi value from a tag.
+        :return: string of data or None if failed.
+        """
+        if not self.is_connected:
+            return None
+            
+        try:
+            value = self.reader.read_afi(idx=tag_idx) 
+            return value
+        except Exception as ex:
+            print(ex)
+            return None

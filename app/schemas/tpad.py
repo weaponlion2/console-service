@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-
+from typing import Optional
 
 class MemoryRequest(BaseModel):
     tagId: str
@@ -11,10 +11,13 @@ class WriteMemoryRequest(BaseModel):
     offset: int = 0
     data: str
 
-class AFIRequest(BaseModel):
-    tagId: str
-    afiValue: int
+class ConnectRequest(BaseModel):
+    connection_str: Optional[str] = "RDType=M201;CommType=USB;AddrMode=0"
 
-class EASRequest(BaseModel):
+class EasRequest(BaseModel):
     tagId: str
-    value: bool
+    enable: bool
+
+class AfiRequest(BaseModel):
+    tagId: str
+    afi: int

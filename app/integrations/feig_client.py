@@ -81,3 +81,96 @@ class FeigClient:
         offset = request.get('offset', 0)
 
         return self.provider.write_tag(tag_idx=tagIndx, offset=offset, data=data)
+
+    def write_eas(self, request):
+        if not self.provider or not self.provider.is_connected:
+            raise ConnectionError("Reader not connected")
+
+        tagId = request.get('tagId', None)
+        value = request.get('value', True)
+        if tagId is None:
+            raise ValueError("tagId is required")
+
+        tags = self.provider.inventory()
+        if not tags:
+            raise ValueError("No tags found during inventory")
+
+        tagIndx = -1
+        for idx, tag in enumerate(tags):
+            if tag.id == tagId:
+                tagIndx = idx
+                break
+
+        if tagIndx < 0 or tagIndx >= len(tags):
+            raise ValueError(f"Invalid tagId: {tagId}. Must be between 0 and {len(tags)-1}")
+
+        return self.provider.write_eas(tag_idx=tagIndx, value=value)
+    
+    def read_eas(self, tagId: str):
+        if not self.provider or not self.provider.is_connected:
+            raise ConnectionError("Reader not connected")
+
+        if tagId is None:
+            raise ValueError("tagId is required")
+
+        tags = self.provider.inventory()
+        if not tags:
+            raise ValueError("No tags found during inventory")
+
+        tagIndx = -1
+        for idx, tag in enumerate(tags):
+            if tag.id == tagId:
+                tagIndx = idx
+                break
+
+        if tagIndx < 0 or tagIndx >= len(tags):
+            raise ValueError(f"Invalid tagId: {tagId}. Must be between 0 and {len(tags)-1}")
+
+        return self.provider.read_eas(tag_idx=tagIndx)
+    
+
+    def write_afi(self, request):
+        if not self.provider or not self.provider.is_connected:
+            raise ConnectionError("Reader not connected")
+
+        tagId = request.get('tagId', None)
+        afiValue = request.get('afiValue', "0")
+        if tagId is None:
+            raise ValueError("tagId is required")
+
+        tags = self.provider.inventory()
+        if not tags:
+            raise ValueError("No tags found during inventory")
+
+        tagIndx = -1
+        for idx, tag in enumerate(tags):
+            if tag.id == tagId:
+                tagIndx = idx
+                break
+
+        if tagIndx < 0 or tagIndx >= len(tags):
+            raise ValueError(f"Invalid tagId: {tagId}. Must be between 0 and {len(tags)-1}")
+
+        return self.provider.write_afi(tag_idx=tagIndx, afiValue=afiValue)
+    
+    def read_afi(self, tagId: str):
+        if not self.provider or not self.provider.is_connected:
+            raise ConnectionError("Reader not connected")
+
+        if tagId is None:
+            raise ValueError("tagId is required")
+
+        tags = self.provider.inventory()
+        if not tags:
+            raise ValueError("No tags found during inventory")
+
+        tagIndx = -1
+        for idx, tag in enumerate(tags):
+            if tag.id == tagId:
+                tagIndx = idx
+                break
+
+        if tagIndx < 0 or tagIndx >= len(tags):
+            raise ValueError(f"Invalid tagId: {tagId}. Must be between 0 and {len(tags)-1}")
+
+        return self.provider.read_afi(tag_idx=tagIndx)

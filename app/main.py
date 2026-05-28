@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import card, item, sip, feig
+from app.api import card, item, sip, feig, tpad
 import os, sys
 from dotenv import load_dotenv
 
@@ -39,5 +39,6 @@ app.add_middleware(
 
 app.include_router(card.router, prefix="", tags=["Patron"])
 app.include_router(feig.router, prefix="/feig", tags=["FEIG"])
+app.include_router(tpad.router, prefix="/tpad", tags=["TPAD"])
 # app.include_router(item.router, prefix="/Item", tags=["Item"])
 # app.include_router(sip.router, prefix="/SIP", tags=["SIP"])

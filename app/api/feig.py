@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.schemas.feig import WriteMemoryRequest, MemoryRequest
+from app.schemas.feig import AFIRequest, EASRequest, WriteMemoryRequest, MemoryRequest
 from app.services.feig_service import FeigService
 from app.integrations.feig_client import FeigClient
 
@@ -26,3 +26,23 @@ def read(request: MemoryRequest):
 def write(request: WriteMemoryRequest):
     """Write memory to a tag using FEIG reader."""
     return service.write_memory(request)
+
+@router.post("/eas")
+def write_eas(request: EASRequest):
+    """Write EAS to a tag using FEIG reader."""
+    return service.write_eas(request)
+
+@router.get("/eas")
+def read_eas(tagId: str):
+    """Read EAS from a tag using FEIG reader."""
+    return service.read_eas(tagId)
+
+@router.post("/afi")
+def write_afi(request: AFIRequest):
+    """Write AFI to a tag using FEIG reader."""
+    return service.write_afi(request)
+
+@router.get("/afi")
+def read_afi(tagId: str):
+    """Read AFI from a tag using FEIG reader."""
+    return service.read_afi(tagId)             
