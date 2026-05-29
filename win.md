@@ -59,7 +59,7 @@ pyinstaller --onefile
 
 
 
-powershell -ExecutionPolicy Bypass -File .\win_setup.ps1
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
 
 
 pyinstaller --onefile 

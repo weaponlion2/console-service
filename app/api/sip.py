@@ -1,42 +1,49 @@
 from fastapi import APIRouter
-from app.schemas.sip import SIPItemRequest, SIPPatronRequest, SIPCheckinRequest, SIPCheckoutRequest
+from app.schemas.sip import (
+    SIPItemRequest, SIPPatronRequest, SIPCheckinRequest, SIPCheckoutRequest,
+    SIPRenewRequest, SIPReserveRequest, SIPFineRequest
+)
 from app.schemas.reader import UIDRequest, MemoryRequest, SecureBlockRequest
-from app.services.card_service import CardService
+from app.services.sip_service import SIPService
+from app.integrations.sip_client import SIPClient
 from app.integrations.reader_client import ReaderClient
 
 router = APIRouter()
-service = CardService(ReaderClient())
+sip_service = SIPService(SIPClient())
 reader = ReaderClient()
 
-@router.post("/Patron")
+@router.post("/patron")
 def sip_patron(request: SIPPatronRequest):
-    return service.get_patron(request)
+    """Get patron information"""
+    return sip_service.get_patron(request)
 
-@router.post("/Item")
+@router.post("/item")
 def sip_item(request: SIPItemRequest):
-    return service.get_item(request)
+    """Get item information"""
+    return sip_service.get_item(request)
 
-@router.post("/Checkout")
+@router.post("/checkout")
 def checkout(request: SIPCheckoutRequest):
-    return service.checkout(request)
+    """Checkout item for patron"""
+    return sip_service.checkout(request)
 
-@router.post("/Checkin")
+@router.post("/checkin")
 def checkin(request: SIPCheckinRequest):
-    return service.checkin(request)
+    """Checkin item"""
+    return sip_service.checkin(request)
 
-# New RFID routes
-@router.get("/uid")
-def get_uid(request: UIDRequest):
-    return reader.readUID(request.dict())
+@router.post("/renew")
+def renew(request: SIPRenewRequest):
+    """Renew item for patron"""
+    return sip_service.renew(request)
 
-@router.get("/memory")
-def get_memory(request: MemoryRequest):
-    return reader.readMemory(request.dict())
+@router.post("/reserve")
+def reserve(request: SIPReserveRequest):
+    """Reserve item for patron"""
+    return sip_service.reserve(request)
 
-@router.post("/memory")
-def post_memory(request: MemoryRequest):
-    return reader.writeMemory(request.dict())
+@router.post("/pay-fine")
+def pay_fine(request: SIPFineRequest):
+    """Pay fine for patron"""
+    return sip_service.pay_fine(request)
 
-@router.post("/secure")
-def post_secure(request: SecureBlockRequest):
-    return reader.secureBlock(request.dict())
