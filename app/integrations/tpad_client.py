@@ -13,7 +13,7 @@ class TpadClient:
             self.service = None
             self._is_connected = False
     
-    def connect(self, connection_str="RDType=M201;CommType=USB;AddrMode=0"):
+    def connect(self, connection_str="RDType=RL8000;CommType=USB;AddrMode=0"):
         print(f"Attempting to connect to TPAD reader with {connection_str}...")
         if not self.service:
             return False
@@ -158,3 +158,27 @@ class TpadClient:
         if info:
             return info.get("afi")
         return None
+
+    def get_card_info(self, uid):
+        if not self.service or not self._is_connected:
+            raise ConnectionError("Reader not connected")
+        
+        return self.service.get_card_info(uid)
+
+    def read_card(self, uid, block, length, key="FFFFFFFFFFFF"):
+        if not self.service or not self._is_connected:
+            raise ConnectionError("Reader not connected")
+        
+        return self.service.read_card(uid, block, length, key)
+
+    def write_card(self, uid, block, data, key="FFFFFFFFFFFF"):
+        if not self.service or not self._is_connected:
+            raise ConnectionError("Reader not connected")
+        
+        return self.service.write_card(uid, block, data, key)
+
+    def change_sector_key(self, uid, sector, current_key, new_key, keyB=None):
+        if not self.service or not self._is_connected:
+            raise ConnectionError("Reader not connected")
+        
+        return self.service.changesectorkey(uid, sector, current_key, new_key, keyB)

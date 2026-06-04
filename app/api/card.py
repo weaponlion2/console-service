@@ -70,7 +70,7 @@ def str_to_hex(request: HexStringRequest):
 @router.post("/hex-to-str")
 def hex_to_str(request: HexStringRequest):
     try:
-        data = bytes.fromhex(request.data).decode('utf-8')
+        data = bytes.fromhex(request.data).replace(b'\x00', b'').decode('utf-8', errors='ignore')
         return {
             "value": data,
             "status": "success"

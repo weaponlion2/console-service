@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query
-from app.schemas.tpad import WriteMemoryRequest, MemoryRequest, ConnectRequest, EasRequest, AfiRequest
+from app.schemas.tpad import WriteMemoryRequest, MemoryRequest, ConnectRequest, EasRequest, AfiRequest, ReadCardRequest, WriteCardRequest, ChangeSectorKeyRequest
 from app.services.tpad_service import TpadService
 from app.integrations.tpad_client import TpadClient
 
@@ -12,6 +12,11 @@ def connect(request: ConnectRequest = None):
     """Initialize and connect to the TPAD reader."""
     connection_str = request.connection_str if request else None
     return service.connect_reader(connection_str)
+
+@router.post("/disconnect")
+def disconnect():
+    """Disconnect from the TPAD reader."""
+    return service.disconnect_reader()
 
 @router.get("/inventory")
 def inventory():
@@ -47,3 +52,24 @@ def write_afi(request: AfiRequest):
 def check_afi(tagId: str = Query(...)):
     """Check AFI value of a tag."""
     return service.check_afi_value(tagId)
+
+@router.get("/card-info")
+def get_card_info(uid: str = Query(...)):
+    """Get card information for the specified UID."""
+    return service.get_card_info(uid)
+
+@router.post("/card-read")
+def read_card(request: ReadCardRequest):
+    """Read memory from MIFARE card starting at specified block."""
+    return service.read_card(request.uid, request.start_block, request.length, request.key)
+
+@router.post("/card-write")
+def write_card(request: WriteCardRequest):
+    """Write memory to MIFARE card starting at specified block."""
+    return service.write_card(request.uid, request.start_block, request.data, request.key)
+
+@router.post("/card-key-change")
+def change_sector_key(request: ChangeSectorKeyRequest):
+    """Change Key A and optionally Key B for a card sector."""
+    return service.change_sector_key(request.uid, request.sector, request.current_key, request.new_key, request.keyB)
+

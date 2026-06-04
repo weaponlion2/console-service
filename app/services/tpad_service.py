@@ -32,13 +32,29 @@ class TpadService:
                 "message": "Failed to connect to TPAD Reader"
             }
 
+    def disconnect_reader(self):
+        try:
+            self.client.disconnect()
+            self.is_connected = False
+            return {
+                "status": "success",
+                "readerstatus": "READER_DISCONNECTED",
+                "message": "TPAD Reader disconnected successfully"
+            }
+        except Exception as e:
+            return {
+                "status": "fail",
+                "readerstatus": "DISCONNECT_FAILED",
+                "message": str(e)
+            }
+
     def get_inventory(self):
         try:
             tags = self.client.inventory()
             if tags:
                 print(f"Inventory found {len(tags)} tags")
                 for tag in tags:
-                    print("Tag UID: ", getattr(tag, 'uid', 'N/A'))
+                    print("Tag UID: ", getattr(tag, 'tag_type_name', 'N/A'))
                 return {
                     "status": "success",
                     "readerstatus": "INVENTORY_SUCCESS",
@@ -182,6 +198,92 @@ class TpadService:
                 "status": "fail",
                 "readerstatus": "AFI_CHECK_FAILED",
                 "message": "Failed to check AFI value"
+            }
+        except Exception as e:
+            return {
+                "status": "fail",
+                "readerstatus": "PROCESS_ERROR",
+                "message": str(e)
+            }
+
+    def get_card_info(self, uid: str):
+        try:
+            info = self.client.get_card_info(uid)
+            if info:
+                return {
+                    "status": "success",
+                    "readerstatus": "CARD_INFO_SUCCESS",
+                    "message": "Card information retrieved successfully",
+                    "output": info
+                }
+            return {
+                "status": "fail",
+                "readerstatus": "CARD_INFO_FAILED",
+                "message": "Card not found or invalid UID"
+            }
+        except Exception as e:
+            return {
+                "status": "fail",
+                "readerstatus": "PROCESS_ERROR",
+                "message": str(e)
+            }
+
+    def read_card(self, uid: str, start_block: int, length: int, key: str):
+        try:
+            result = self.client.read_card(uid, start_block, length, key)
+            if result and result.get("status"):
+                return {
+                        "status": "success",
+                        "readerstatus": result.get("readerstatus", "READ_SUCCESS"),
+                        "message": result.get("message", "Card read successfully"),
+                        "output": result.get("data")
+                    }
+            return {
+                "status": "fail",
+                "readerstatus": result.get("readerstatus", "READ_FAILED") if result else "READ_FAILED",
+                "message": result.get("message", "Failed to read card") if result else "Failed to read card"
+            }
+        except Exception as e:
+            return {
+                "status": "fail",
+                "readerstatus": "PROCESS_ERROR",
+                "message": str(e)
+            }
+
+    def write_card(self, uid: str, start_block: int, data: str, key: str):
+        try:
+            result = self.client.write_card(uid, start_block, data, key)
+            if result and result.get("status"):
+                return {
+                    "status": "success",
+                    "readerstatus": result.get("readerstatus", "WRITE_SUCCESS"),
+                    "message": result.get("message", "Card written successfully")
+                }
+            return {
+                "status": "fail",
+                "readerstatus": result.get("readerstatus", "WRITE_FAILED") if result else "WRITE_FAILED",
+                "message": result.get("message", "Failed to write card") if result else "Failed to write card"
+            }
+        except Exception as e:
+            return {
+                "status": "fail",
+                "readerstatus": "PROCESS_ERROR",
+                "message": str(e)
+            }
+
+    def change_sector_key(self, uid: str, sector: int, current_key: str, new_key: str, keyB: str = None):
+        try:
+            result = self.client.change_sector_key(uid, sector, current_key, new_key, keyB)
+            if result and result.get("status"):
+                return {
+                    "status": "success",
+                    "readerstatus": result.get("readerstatus", "KEY_CHANGED"),
+                    "message": result.get("message", "Sector key changed successfully")
+                }
+            return {
+                "status": "fail",
+                "readerstatus": result.get("readerstatus", "KEY_CHANGE_FAILED") if result else "KEY_CHANGE_FAILED",
+                "message": result.get("message", "Failed to change sector key") if result else "Failed to change sector key"
             }
         except Exception as e:
             return {
